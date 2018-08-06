@@ -1,0 +1,96 @@
+---
+title: "Análisis metagenómico de la diversidad de plancton en la zona epipelágica del golfo de México"
+author: "Grupo Bioinformatica"
+date: "Informe `r format(Sys.Date())`"
+output: 
+  word_document 
+#    reference_docx: 
+# output: pdf_document
+---
+
+```{r setup, include=FALSE}
+# Setting global option in all the chunks-code
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+```
+
+## Generalidad del análisis
+
+Los datos provienen de muestras obtenidas en _____ estaciones que cubrió el crucero exploratorio ____. Para cada muestra se generaron amplicones de la región v9 del gen ribosomal 18S. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 150 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del cicese-cigom). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
+
+El resumen del análisis se divide entre en tres etapas cruciales:
+* Pre-procesamiento y alineamiento de lecturas. 
+* Identificación, abundancia y clasificación taxonómica de OTUs.
+* Estimación de los índices de diversidad y presentación gráfica resultados.
+
+### Pre-procesamiento y alineamiento de lecturas
+
+Durante el pre-procesamiento se demultiplexa y eliminan secuencias ambiguas y de puntaje de calidad phred menor a 20. La siguiente imagen resume las métricas de las bibliotecas illumina obtenidas para el crucero exploratorio (Figura 1 y 2).
+
+
+```{r, fig.align = "center", fig.cap = "Figura 1. Promedio del puntaje de calidad Phred a lo largo de las lecturas de las bibliotecas. Bibliotecas Forward (R1) y Reverse (R2)."}
+
+library("fastqcr")
+library("ggplot2")
+# unzip fastq libs first with tar -xvf * 
+qc.dir <- c("/Users/cigom/metagenomics/example_samples/fastqc/")
+# qc.dir <- system.file("fastqc_results", package = "fastqcr")
+qc.files <- list.files(qc.dir, full.names = TRUE)
+
+sample_names = strsplit(dir(qc.dir), "_"); sample_names <- sapply(sample_names, "[", c(1,4)); sample_names <- as.data.frame(t(sample_names)); colnames(sample_names) <- c("Id","End")
+
+qc <- qc_read_collection(qc.files, sample_names = sample_names$End) # time demand
+qc_plot_collection(qc, modules = "Per sequence quality scores") +   theme_classic()
+
+```
+
+```{r, fig.align = "center", fig.cap = "Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (R1) y Reverse (R2)."}
+
+qc_plot_collection(qc, modules = "Per base sequence quality") +   theme_classic()
+
+```
+
+El análisis metagenómico se llevó a cabo en el cluster de cómputo OMICA-cicese mediante el programa mothur version 1.39.5. La tubería del análisis fue adaptada del sugerido por  Schloss et al. 2013 para amplicones de la región v9 del gen 18S rRNA secuenciados por Illumina. Después del pre-procesamiento, las lecturas se transformaron a un set de secuencias unicas para implementar el alineamiento con la región v9  de la base de secuencias de referencia Silva v128 (Oliver-Glockner et. al. 2014). Entre aquellas que presentaron homología con la base de referencia mayor al 50% en identidad se implementa un paso de filtrado para eliminar falsos homopolímeros (max=10) y se volvieron a identificar secuencia únicas, posteriormente se quitaron aquellas secuencias que podrían tener al menos 2 cambios en nucleótidos, en base a la matriz generada en el alineamiento (Figura 3). 
+
+## Identificación, abundancia y clasificación taxonómica de OTUs
+
+Se removieron quimeras implementando la herramienta VSEARCH (Mahé F. et. al., 2016); las secuencias resultantes fueron agrupadas mediante el algoritmo Opticlust (Schloss et. al., 2017) tomando un parámetro de 97% de similitud entre secuencias para ser consideradas pertenecientes una unidad taxonómica operacional (OTU). Se realizó la asignación taxonómica de las secuencias procesadas usando un algoritmo de clasificación de Bayes ingenuo (Wang, 2007) y se obtuvo la taxonomía consenso para cada OTU. La base de datos para asignación taxonómica está compuesta de las secuencias de la base de datos W2-PR2 (de Vargas, 2015) que fue generada en un estudio metagenómico de amplio muestreo (descargada de su sitio web el 2 de Mayo de 2017) en la que se implementó la nomenclatura utilizada en la base de datos del registro mundial de especies marinas: WORMS (WoRMS Editorial Board, 2017). La figura 3 resume la abundancia de secuencias obtenidas a través del análisis metagenómico :
+
+```{r, echo = FALSE, fig.align = "center", fig.cap = "El número de secuencias totales (azul), secuencias de buena calidad (GQ, rojo), secuencias Alineadas y quimeras removidas (ANC, Amarillo) y secuencias clasificadas en el linaje Animal (Verde) a lo largo de las estaciones."}
+
+```
+
+## Estimación de los índices de diversidad y presentación gráfica resultados
+
+La estimación de los índices de diversidad y la generación de representaciones gráficas de los resultados del análisis metagenómico, se realizó en R v3.4 (R Core Team, 2017) utilizando diferentes paquetes especializados en análisis de datos ecológicos y gráficos.  
+
+Para obtener una perspectiva biológica de la las comunidades planctónicas se calculó la abundancia relativa a nivel taxón los OTUs obtenidos por estación. El siguiente grupo de figuras (Figura 4,5,6,7 y 8) muestran en mapas de calor la composición de las comunidades a los diferentes rangos taxonómicos indicados (Filo, Clase, Orden, Familia, Género). Se muestran únicamente aquellos taxones cuya abundancia relativa supera el porcentaje señalado. Para una mejor visualización de los grupos de organismos en la figura correspondiente al rango Género, los organismos se agrupan e indican sus rangos Filos y Clase correspondientes, en las columnas del panel izquierdo (Figura 8). 
+
+Aquellos taxones denominados como 'unclassified' denotan que no es posible asignar un nombre al rango taxonómico actual y en cambio indican el nombre del último rango asignado posible. Esta tendencia se acentúa conforme se baja de rango taxonómico (sentido Reino a Especie) y depende del grupo de organismos evaluado.
+
+```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 4. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 1% en la comunidad."}
+library("phyloseq")
+
+# Path files for processing within phyloseq
+mtree = dir(pattern= '*0.03.0.03.cons.phylip.taxonomy.tre')
+mbiom = dir(pattern='.*biom')
+mgroup = dir(pattern='cigom.groups')
+
+
+# or better
+biom <- import_biom(mbiom)
+# and include sampledata
+if (identical(colnames(otu_table(biom)), rownames(mgroup))) { biom <- merge_phyloseq(biom, mgroup) }
+
+print(physeq)
+```
+EJECUTAR EL PROCESAMIENTO DEL BIOM, Y CARGAR EN ESTA LINEA, ENTONCES EMPEZAR CON LOS HEATMAPS Y RESTO DE ANALISIS, HASTA LLEGAR A LA ETAPA DE ARBOLES, DONDE DEBEREMOS INTEGRAR EL ARBOL DE DISTANCIA DE SECUENCIAS. REVISAR LOS GRAFICOS DE INFOVIS1.RMD (PHYLOSEQ) PARA HEATMAPS Y USO DE COLORES, ADEMAS INCLUIR PROPUESTA DE tidyamplicons EN devtools::install_github("SWittouck/tidaymplicons", build_vignettes = TRUE)
+```{r}
+library(ape)
+t = read.tree(mtree)
+
+# /// Merging a phyloseq object
+if (identical(taxa_names(biom), sort(t$tip.label))) { phyloseq = merge_phyloseq(biom, t) 
+    }  else { phyloseq = merge_phyloseq(biom) }
+
+
+```
