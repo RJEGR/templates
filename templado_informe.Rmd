@@ -109,7 +109,7 @@ mtree <- list.files(biom.dir, full.names = TRUE, pattern = "*.rep.treein.tre")
 t = read.tree(mtree[1])
 
 # /// Merging a phyloseq object
-if (identical(taxa_names(obj), sort(t$tip.label))) { phyloseq = merge_phyloseq(phyloseq, t) 
+if (identical(taxa_names(obj), sort(t$tip.label))) { phyloseq = merge_phyloseq(obj, t) 
     }  else { phyloseq = obj }
 
 # parsing colnames (rename ranks)  and rownames (for taxa==OTU names, TRUE)
@@ -260,7 +260,9 @@ library(ranacapa)
 rr <- subset_taxa(phyloseq, Kingdom == "Animalia")
 minsample <- min(sample_sums(rr))
 
-rrplot <- ggrare(rr, step = 100, label = "Station", color="Station", se = FALSE, plot = FALSE) 
+rrplot <- ggrare(rr, step = 100, label = "Station", 
+                 #color="Station", 
+                 se = FALSE, plot = FALSE) 
 
 rrplot +
   xlab("Sequences number") + ylab("OTUs number") + 
