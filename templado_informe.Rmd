@@ -15,12 +15,12 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 
 ## Generalidad del análisis
 
-Los datos provienen de muestras obtenidas en _____ estaciones que cubrió el crucero exploratorio ____. Para cada muestra se generaron amplicones de la región v9 del gen ribosomal 18S. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 150 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del cicese-cigom). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
+Los datos provienen de muestras obtenidas en *42* estaciones que cubrió el crucero exploratorio *XIXIMI-06* Para cada muestra se generaron amplicones de la región v9 del gen ribosomal 18S. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 150 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del cicese-cigom). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
 
 El resumen del análisis se divide entre en tres etapas cruciales:
-* Pre-procesamiento y alineamiento de lecturas. 
-* Identificación, abundancia y clasificación taxonómica de OTUs.
-* Estimación de los índices de diversidad y presentación gráfica resultados.
+*Pre-procesamiento y alineamiento de lecturas. 
+*Identificación, abundancia y clasificación taxonómica de OTUs.
+*Estimación de los índices de diversidad y presentación gráfica resultados.
 
 ### Pre-procesamiento y alineamiento de lecturas
 
@@ -32,7 +32,8 @@ Durante el pre-procesamiento se demultiplexa y eliminan secuencias ambiguas y de
 library("fastqcr")
 library("ggplot2")
 # First processes the quality screening by: fastqc *.fastq.gz -o fastqc/
-qc.dir <- c("/Users/cigom/metagenomics/example_samples/fastqc")
+#qc.dir <- c("/Users/cigom/metagenomics/example_samples/fastqc")
+qc.dir <- c("/Users/cigom/metagenomics/phyloseq_in/fastqc/")
 qc.files <- list.files(qc.dir, full.names = TRUE)
 
 sample_names <- strsplit(dir(qc.dir), "_")
@@ -69,11 +70,11 @@ Para obtener una perspectiva biológica de la las comunidades planctónicas se c
 
 Aquellos taxones denominados como 'unclassified' denotan que no es posible asignar un nombre al rango taxonómico actual y en cambio indican el nombre del último rango asignado posible. Esta tendencia se acentúa conforme se baja de rango taxonómico (sentido Reino a Especie) y depende del grupo de organismos evaluado.
 
-```{r, echo = FALSE}
-library("phyloseq")
-
+```{r phyloseq, echo = FALSE}
+library(phyloseq)
 # Path files for processing within phyloseq
-biom.dir <- c("/Users/cigom/metagenomics/example_samples/phyloseq_in")
+#biom.dir <- c("/Users/cigom/metagenomics/example_samples/phyloseq_in")
+biom.dir <- c("/Users/cigom/metagenomics/phyloseq_in/")
 mbiom = list.files(biom.dir, full.names = TRUE, pattern = "biom")
 mgroup = list.files(biom.dir, full.names = TRUE, pattern = "cigom.groups")
 
@@ -85,6 +86,7 @@ mgroup = list.files(biom.dir, full.names = TRUE, pattern = "cigom.groups")
 # Format sample(group) names
 
 group = read.csv(mgroup[1], header=T, stringsAsFactors = FALSE, sep = "")
+rownames(group) <- group[, 1]
 mgroup = sample_data(group)
 
 
@@ -92,7 +94,7 @@ mgroup = sample_data(group)
 
 biom <- import_biom(mbiom[1])
 # and include sampledata
-if (identical(colnames(otu_table(biom)), rownames(mgroup))) { phyloseq <- merge_phyloseq(biom, mgroup) }
+if (identical(colnames(otu_table(biom)), rownames(mgroup))) { obj <- merge_phyloseq(biom, mgroup) }
 
 
 # Finally prepare a tre based on the representative-OTU-clusters sequence aligned in the classification step
@@ -101,20 +103,17 @@ if (identical(colnames(otu_table(biom)), rownames(mgroup))) { phyloseq <- merge_
 # mothur > clearcut(fasta=cigom.0.03.rep.treein.fasta, DNA=T)
 
 library(ape)
-mtree <- list.files(biom.dir, full.names = TRUE, pattern = "cigom.0.03.rep.treein.tre")
+
+mtree <- list.files(biom.dir, full.names = TRUE, pattern = "*.rep.treein.tre")
+
 t = read.tree(mtree[1])
 
 # /// Merging a phyloseq object
-if (identical(taxa_names(phyloseq), sort(t$tip.label))) { phyloseq = merge_phyloseq(phyloseq, t) 
-    }  else { phyloseq = phyloseq }
+if (identical(taxa_names(obj), sort(t$tip.label))) { phyloseq = merge_phyloseq(phyloseq, t) 
+    }  else { phyloseq = obj }
 
-print(phyloseq)
-```
-
-
-
-```{r Animalia, echo = FALSE}
 # parsing colnames (rename ranks)  and rownames (for taxa==OTU names, TRUE)
+
 Rank <- c("Kingdom", "Phylum", "Class", "Order", 
                    			 "Family", "Genus", "Species")
 
@@ -139,7 +138,7 @@ for(i in ncol(tax_table(phyloseq)):1) {
 ```
 
 
-```{r}
+```{r Animalia}
 # And keep Animalia only:
 Animalia <- subset_taxa(phyloseq, Kingdom == "Animalia")
 # And removing any missing i.e. abundance of zero
@@ -147,9 +146,8 @@ Animalia <- prune_taxa(taxa_sums(Animalia) > 0, Animalia)
 ```
 
 
-Filter by Across-Sample Criteria
-
 ```{r}
+# Filter by Across-Sample Criteria
 library(RColorBrewer)
 theme_set(theme_classic())
 
@@ -302,6 +300,7 @@ p + geom_text(aes(label = Station, label.size = 10))
 
 dp <- phyloseq::psmelt(rr)
 colourCount = length(unique(tax_table(rr)[,3]))
+getPalette = colorRampPalette(brewer.pal(9, "Spectral"))
 
 library(ggpubr)
 
@@ -319,7 +318,8 @@ ggdotchart(dp, x = "Station", y ="Phylum",
 Visualizacion de hexanauplia
 
 ```{r, echo = FALSE}
-Hx.cls = subset_taxa(Animalia, Class=="Hexanauplia")
+library(phyloseq)
+Hx.cls = subset_taxa(phyloseq, Class=="Hexanauplia")
 Hx.cls = prune_samples(sample_sums(Hx.cls)>=20, Hx.cls) # filter where the sum of sample are higher than 20 barcodes per sample. ie.  remove samples with less than 20 total reads
 Hx.cls <- transform_sample_counts(Hx.cls, function(x) (x / sum (x) )) 
 Hx.cls <- transform_sample_counts(Hx.cls, function(x) x * 100 ) 
@@ -346,7 +346,8 @@ plot_bar(Hx.cls, "Station", fill="Family") +
 
 ```
 
-```{r, fig.align = "center", fig.cap="Hexanauplia tree (Family label in the xlab)"}
+
+```{r, fig.align = "center", fig.cap="Hexanauplia tree (Family labeled)",  fig.width = 7}
 
 # plot_tree(Hx.cls, shape="Order", color="Station", ladderize="left") 
 library(dplyr)
@@ -354,8 +355,8 @@ Hx.df <- as_tibble(phyloseq::psmelt(Hx.cls))
 colnames(Hx.df)[1] <- "label"
 
 df <- Hx.df %>% group_by(label) %>% 
-                filter (!duplicated(label)) %>% 
-                select(label, Sample, Class, Order, Family, Genus)
+  filter (!duplicated(label)) %>% 
+  select(label, Sample, Class, Order, Family, Genus)
 
 
 library(ggtree)
@@ -373,7 +374,7 @@ colourCount = length(unique(df$Family))
 ggtree(tre, branch.length='none', layout='circular', aes(color=Family), na.rm = FALSE) +
   theme(legend.position="right") +
   scale_color_manual(values = c(getPalette(colourCount), "grey"), guide = guide_legend(ncol=2))
-  # + geom_tiplab(aes(subset=(Family=="Temoridae"))) # in process
+# + geom_tiplab(aes(subset=(Family=="Temoridae"))) # in process
 
 
 
@@ -389,17 +390,21 @@ ggtree(tre, branch.length='none', layout='circular', aes(color=Family), na.rm = 
 ```
 
 
+
+
 ## Citas
-1. Kozich JJ, Westcott SL, Baxter NT, Highlander SK, Schloss PD. (2013): Development of a dual-index sequencing strategy and curation pipeline for analyzing amplicon sequence data on the MiSeq Illumina sequencing platform. Applied and Environmental Microbiology. 79(17):5112-20.
 
-2. Yilmaz P, Parfrey LW, Yarza P, Gerken J, Pruesse E, Quast C, Schweer T, Peplies J, Ludwig W, Glöckner FO. (2014): The SILVA and "All-species Living Tree Project (LTP)" taxonomic frameworks. Nucl. Acids Res. 42:D643-D648.
+1 Kozich JJ, Westcott SL, Baxter NT, Highlander SK, Schloss PD. (2013): Development of a dual-index sequencing strategy and curation pipeline for analyzing amplicon sequence data on the MiSeq Illumina sequencing platform. Applied and Environmental Microbiology. 79(17):5112-20
 
-3. Rognes T, Flouri T, Nichols B, Quince C, Mahé F. (2016) VSEARCH: a versatile open source tool for metagenomics. PeerJ 4:e2584 
+2 Yilmaz P, Parfrey LW, Yarza P, Gerken J, Pruesse E, Quast C, Schweer T, Peplies J, Ludwig W, Glöckner FO. (2014): The SILVA and "All-species Living Tree Project (LTP)" taxonomic frameworks. Nucl. Acids Res. 42:D643-D648
 
-4 .Westcott SL, Schloss PD. (2017). OptiClust, an improved method for assigning amplicon-based sequence data to operational taxonomic units. mSphere 2:e00073-17. 
+3 Rognes T, Flouri T, Nichols B, Quince C, Mahé F. (2016) VSEARCH: a versatile open source tool for metagenomics. PeerJ 4:e2584 
 
-5. De Vargas, C., et al. (2015) Eukaryotic plankton diversity in the sunlit ocean. Science 348.6237 1261605.
+4 Westcott SL, Schloss PD. (2017). OptiClust, an improved method for assigning amplicon-based sequence data to operational taxonomic units. mSphere 2:e00073-17
+
+5 De Vargas, C., et al. (2015) Eukaryotic plankton diversity in the sunlit ocean. Science 348.6237 1261605
 
 
-
+```{r}
 # INCLUIR PROPUESTA DE tidyamplicons EN devtools::install_github("SWittouck/tidaymplicons", build_vignettes = TRUE)
+```
