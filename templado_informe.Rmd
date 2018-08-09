@@ -31,21 +31,23 @@ Durante el pre-procesamiento se demultiplexa y eliminan secuencias ambiguas y de
 
 library("fastqcr")
 library("ggplot2")
-# unzip fastq libs first with tar -xvf * 
-qc.dir <- c("/Users/cigom/metagenomics/example_samples/fastqc/")
-# qc.dir <- system.file("fastqc_results", package = "fastqcr")
+# First processes the quality screening by: fastqc *.fastq.gz -o fastqc/
+qc.dir <- c("/Users/cigom/metagenomics/example_samples/fastqc")
 qc.files <- list.files(qc.dir, full.names = TRUE)
 
-sample_names = strsplit(dir(qc.dir), "_"); sample_names <- sapply(sample_names, "[", c(1,4)); sample_names <- as.data.frame(t(sample_names)); colnames(sample_names) <- c("Id","End")
+sample_names <- strsplit(dir(qc.dir), "_")
+sample_names <- sapply(sample_names, "[", c(1,4))
+sample_names <- as.data.frame(t(sample_names))
+colnames(sample_names) <- c("Id","End")
 
-qc <- qc_read_collection(qc.files, sample_names = sample_names$End) # time demand
-qc_plot_collection(qc, modules = "Per sequence quality scores") +   theme_classic()
+qc <- qc_read_collection(qc.files, sample_names = sample_names$End, modules = c("Per sequence quality scores", "Per base sequence quality"))
+qc_plot_collection(qc, modules = "Per sequence quality scores") +   theme_classic() + geom_line(size=1)
 
 ```
 
 ```{r, fig.align = "center", fig.cap = "Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (R1) y Reverse (R2)."}
 
-qc_plot_collection(qc, modules = "Per base sequence quality") +   theme_classic()
+qc_plot_collection(qc, modules = "Per base sequence quality") +   theme_classic() + geom_line(size=2)
 
 ```
 
@@ -67,30 +69,335 @@ Para obtener una perspectiva biológica de la las comunidades planctónicas se c
 
 Aquellos taxones denominados como 'unclassified' denotan que no es posible asignar un nombre al rango taxonómico actual y en cambio indican el nombre del último rango asignado posible. Esta tendencia se acentúa conforme se baja de rango taxonómico (sentido Reino a Especie) y depende del grupo de organismos evaluado.
 
-```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 4. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 1% en la comunidad."}
+```{r, echo = FALSE}
 library("phyloseq")
 
 # Path files for processing within phyloseq
-mtree = dir(pattern= '*0.03.0.03.cons.phylip.taxonomy.tre')
-mbiom = dir(pattern='.*biom')
-mgroup = dir(pattern='cigom.groups')
+biom.dir <- c("/Users/cigom/metagenomics/example_samples/phyloseq_in")
+mbiom = list.files(biom.dir, full.names = TRUE, pattern = "biom")
+mgroup = list.files(biom.dir, full.names = TRUE, pattern = "cigom.groups")
+
+# An example of group file could be created as using the files file inputed in mothur
+# cat cigom.files | awk '{print $1}' > groups
+# cat cigom.files | awk '{print $1}' | cut -d"_" -f1,2,3,4,5 | sed 's/_/ /g' > factors
+# paste groups factors | sed '1iID Run Cruice Station Barcode SampleType' | tr "\t" " " > cigom.groups
+
+# Format sample(group) names
+
+group = read.csv(mgroup[1], header=T, stringsAsFactors = FALSE, sep = "")
+mgroup = sample_data(group)
 
 
-# or better
-biom <- import_biom(mbiom)
+# load biom
+
+biom <- import_biom(mbiom[1])
 # and include sampledata
-if (identical(colnames(otu_table(biom)), rownames(mgroup))) { biom <- merge_phyloseq(biom, mgroup) }
+if (identical(colnames(otu_table(biom)), rownames(mgroup))) { phyloseq <- merge_phyloseq(biom, mgroup) }
 
-print(physeq)
-```
-EJECUTAR EL PROCESAMIENTO DEL BIOM, Y CARGAR EN ESTA LINEA, ENTONCES EMPEZAR CON LOS HEATMAPS Y RESTO DE ANALISIS, HASTA LLEGAR A LA ETAPA DE ARBOLES, DONDE DEBEREMOS INTEGRAR EL ARBOL DE DISTANCIA DE SECUENCIAS. REVISAR LOS GRAFICOS DE INFOVIS1.RMD (PHYLOSEQ) PARA HEATMAPS Y USO DE COLORES, ADEMAS INCLUIR PROPUESTA DE tidyamplicons EN devtools::install_github("SWittouck/tidaymplicons", build_vignettes = TRUE)
-```{r}
+
+# Finally prepare a tre based on the representative-OTU-clusters sequence aligned in the classification step
+# Also remember rename the fasta-aligned headers in order to converge the rest of the analysis
+# awk '/^>/{gsub(/[|]/, " "); print ">"$2; next}{print}' < 0.03.rep.fasta > cigom.0.03.rep.treein.fasta 
+# mothur > clearcut(fasta=cigom.0.03.rep.treein.fasta, DNA=T)
+
 library(ape)
-t = read.tree(mtree)
+mtree <- list.files(biom.dir, full.names = TRUE, pattern = "cigom.0.03.rep.treein.tre")
+t = read.tree(mtree[1])
 
 # /// Merging a phyloseq object
-if (identical(taxa_names(biom), sort(t$tip.label))) { phyloseq = merge_phyloseq(biom, t) 
-    }  else { phyloseq = merge_phyloseq(biom) }
+if (identical(taxa_names(phyloseq), sort(t$tip.label))) { phyloseq = merge_phyloseq(phyloseq, t) 
+    }  else { phyloseq = phyloseq }
 
+print(phyloseq)
+```
+
+
+
+```{r Animalia, echo = FALSE}
+# parsing colnames (rename ranks)  and rownames (for taxa==OTU names, TRUE)
+Rank <- c("Kingdom", "Phylum", "Class", "Order", 
+                   			 "Family", "Genus", "Species")
+
+
+colnames(tax_table(phyloseq)) <- c(Rank, "Extra1")
+tax_table(phyloseq)[,8] <- 7
+
+for(i in ncol(tax_table(phyloseq)):1) {
+    # it will replace 'unknown_unclassified' terms for 'Unknown' term
+    tax_table(phyloseq)[,i] <- sub("unknown", "Unknown", tax_table(phyloseq)[,i])
+    tax_table(phyloseq)[,i] <- sub("unknown.*", "Unknown", tax_table(phyloseq)[,i])
+#   Sub taxa with *nclassified with Undetermined term
+    tax_table(phyloseq)[,i] <- sub(".*nclassified.*", 
+    "Undetermined", tax_table(phyloseq)[,i], perl=TRUE)
+#   Instead of Undetermined classified , use NA
+    tax_table(phyloseq)[,i][grep("Undetermined|Unknown|NA",
+                        tax_table(phyloseq)[,i], perl=TRUE)] <- NA
+#   Define max resolution per taxa    
+    tax_table(phyloseq)[is.na(tax_table(phyloseq)[,i]), "Extra1"] <- i-1
+}
 
 ```
+
+
+```{r}
+# And keep Animalia only:
+Animalia <- subset_taxa(phyloseq, Kingdom == "Animalia")
+# And removing any missing i.e. abundance of zero
+Animalia <- prune_taxa(taxa_sums(Animalia) > 0, Animalia) 
+```
+
+
+Filter by Across-Sample Criteria
+
+```{r}
+library(RColorBrewer)
+theme_set(theme_classic())
+
+taxaSums <- plyr::ldply(taxa_sums(Animalia), rbind)
+colnames(taxaSums) <- c("Taxa", "Size")
+taxaSums <- taxaSums[order(-taxaSums[,2]),]
+# hist(taxaSums$Size) 
+
+
+sampleSums <- plyr::ldply(sample_sums(Animalia), rbind)
+colnames(sampleSums) <- c("Sample", "Abundance")
+sampleSums <- sampleSums[order(-sampleSums[,2]),]
+
+
+Animalia <- transform_sample_counts(Animalia, function(x) (x / sum (x) ))
+Animalia <- transform_sample_counts(Animalia, function(x) x * 100 ) 
+
+#Aprune <- filter_taxa(Animalia, function(x) sum(x > 1) > (0.1*length(x)), TRUE)
+
+# niceplot for small subset 
+# plot_bar(phyloseq, "Family", fill="Phylum", facet_grid=~Station) 
+# .. geom_bar(stat="identity") +
+#      scale_fill_brewer(palette="Spectral")
+
+```
+
+```{r, fig.align = "center", fig.cap = "Figura 4. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 1% en la comunidad.", out.width='\\textwidth'}
+# Agglomerate taxa of the same Specie type [phylotyping] // demora 1-2 min //
+Phylum <-tax_glom(Animalia, taxrank="Phylum")
+
+plot_heatmap(Phylum, "NMDS", "bray", 
+             sample.label = "Station", 
+             taxa.label = "Phylum",
+             na.value = "white", trans = NULL,
+             low = "#FFFFD9", high = "#081D58") +
+        labs(fill = "Relative\nAbundance (%)")
+```
+
+
+```{r, fig.align = "center", fig.cap = "Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 2 % en la comunidad."}
+Class <-tax_glom(Animalia, taxrank="Class")
+
+plot_heatmap(Class, "NMDS", "bray", 
+             sample.label = "Station", 
+             taxa.label = "Class",
+             na.value = "white", trans = NULL,
+             low = "#FFFFD9", high = "#081D58") +
+         labs(fill = "Relative\nAbundance (%)")
+```
+
+```{r , fig.align = "center", fig.cap="Figura 6. Composición de las comunidades a nivel Orden a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5 % en la comunidad.", fig.height = 7, fig.width = 5}
+Order <-tax_glom(Animalia, taxrank="Order")
+
+plot_heatmap(Order, "NMDS", "bray", 
+             sample.label = "Station", 
+             taxa.label = "Order",
+             na.value = "white", trans = NULL,
+             low = "#FFFFD9", high = "#081D58") +
+         labs(fill = "Relative\nAbundance (%)")
+
+```
+
+
+```{r , fig.align = "center", fig.cap="Figura 7. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5 % en la comunidad", fig.width = 5, fig.height = 7}
+
+Family <-tax_glom(Animalia, taxrank="Family")
+
+plot_heatmap(Family, "NMDS", "bray", 
+             sample.label = "Station", 
+             taxa.label = "Family",
+             na.value = "white", trans = NULL,
+             low = "#FFFFD9", high = "#081D58") +
+        labs(fill = "Relative\nAbundance (%)")
+```
+
+
+```{r, fig.align = "center", fig.cap = "Figura 8. Composición de las comunidades a nivel Género a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5% en la comunidad. Respectivamente, se indican sus rangos Filos y Clase correspondientes en las columnas del panel izquierdo", fig.width = 5, fig.height = 6}
+
+Genus <-tax_glom(Animalia, taxrank="Genus")
+
+h <- plot_heatmap(Genus, "NMDS", "bray", 
+             sample.label = "Station", 
+             taxa.label = "Genus",
+             na.value = "white", trans = NULL,
+             low = "#FFFFD9", high = "#081D58")
+
+h + facet_grid(Phylum+Class ~ ., 
+               scales = "free", space = "free" 
+    #                             switch = "y"
+              ) + 
+  theme(
+  strip.text.y = element_text(
+                        angle = 0, 
+                        size = 5),
+  strip.background = element_rect(colour = "black", 
+                                  fill = "transparent",
+                                  size = 0.1),
+  panel.spacing = unit(0.01, "lines")
+       ) +
+  labs(fill = "Relative\nAbundance (%)")
+```
+..
+```{r, echo = FALSE, fig.align = "center", fig.cap = "Curva de rarefacción que presenta la riqueza de OTUs a lo largo de las estaciones en relación al número de secuencias"}
+# https://github.com/gauravsk/ranacapa/
+# and https://github.com/joey711/phyloseq/issues/143
+
+library(ranacapa)
+
+rr <- subset_taxa(phyloseq, Kingdom == "Animalia")
+minsample <- min(sample_sums(rr))
+
+rrplot <- ggrare(rr, step = 100, label = "Station", color="Station", se = FALSE, plot = FALSE) 
+
+rrplot +
+  xlab("Sequences number") + ylab("OTUs number") + 
+    theme(text = element_text(size=12),
+        panel.background = element_blank()) +
+  geom_point(size=0.7) +
+  geom_hline(yintercept = 100, linetype = "dashed")
+```
+
+En el siguiente enlace externo se encuentran la tabla de los índices de diversidad alfa: PATHTOTHEFILE
+```{r, fig.align = "center", fig.cap = "Diversidad alpha"}
+prichnes <- plot_richness(rr, x="Station", color="Station", measures=c("Chao1", "Shannon", "InvSimpson"))
+prichnes$layers <- prichnes$layers[-1]
+prichnes + geom_point(size=5, alpha=0.7) +
+    scale_fill_manual(values = getPalette(nsamples(rr)))
+```
+
+La diferencia en composición de la comunidad de zooplancton entre estaciones se evaluó mediante un análisis de coordenadas principales usando una matriz de distancias Jaccard. En la figura 10 se observa que la mayoría de las estaciones forman agrupaciones indicando comunidades similares mientras que son pocas estaciones que se separan, indicando comunidades diferentes al resto del grupo.
+
+```{r, fig.align = "center", fig.cap = "Figura 10. PCoA. Componentes principales (Distancias Jaccard)."}
+
+iDist <- distance(rr, method="binary") # Jaccard
+iMDS  <- ordinate(rr, "PCoA", distance=iDist) 
+
+p <- plot_ordination(rr, iMDS
+                     #color="Station"
+                     #label="Station" 
+                     #shape="Cruice"
+                     ) 
+p$layers <- p$layers[-1]
+p + geom_text(aes(label = Station, label.size = 10)) 
+
+```
+
+```{r, fig.align = "center", fig.cap = "Additional plots - otus (abundantes) en una/ dos estaciones unicamente"}
+
+dp <- phyloseq::psmelt(rr)
+colourCount = length(unique(tax_table(rr)[,3]))
+
+library(ggpubr)
+
+ggdotchart(dp, x = "Station", y ="Phylum",
+ group = "Station", color = "Class",
+   palette = getPalette(colourCount),
+   rotate = TRUE,
+   sorting = "descending",
+   ggtheme = theme_bw(),
+   y.text.col = TRUE,
+   dot.size = "Abundance") + 
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+Visualizacion de hexanauplia
+
+```{r, echo = FALSE}
+Hx.cls = subset_taxa(Animalia, Class=="Hexanauplia")
+Hx.cls = prune_samples(sample_sums(Hx.cls)>=20, Hx.cls) # filter where the sum of sample are higher than 20 barcodes per sample. ie.  remove samples with less than 20 total reads
+Hx.cls <- transform_sample_counts(Hx.cls, function(x) (x / sum (x) )) 
+Hx.cls <- transform_sample_counts(Hx.cls, function(x) x * 100 ) 
+```
+
+
+```{r, echo = FALSE}
+# and interpolating large color pallete
+# https://www.r-bloggers.com/how-to-expand-color-palette-with-ggplot-and-rcolorbrewer/
+library(RColorBrewer)
+colourCount = length(unique(tax_table(Hx.cls)[,5]))
+getPalette = colorRampPalette(brewer.pal(9, "Spectral"))
+```
+
+```{r, fig.align = "center", fig.cap="Hexanauplia subset through the samples (Family label in the xlab)", fig.width = 7}
+library(RColorBrewer)
+theme_set( theme_classic())
+
+plot_bar(Hx.cls, "Station", fill="Family") +
+  geom_bar(stat="identity") +
+    scale_fill_manual(values = getPalette(colourCount)) +
+   ylab("Relative Abundance (%)") +  coord_flip() +
+  guides(fill=guide_legend(ncol=3))
+
+```
+
+```{r, fig.align = "center", fig.cap="Hexanauplia tree (Family label in the xlab)"}
+
+# plot_tree(Hx.cls, shape="Order", color="Station", ladderize="left") 
+library(dplyr)
+Hx.df <- as_tibble(phyloseq::psmelt(Hx.cls))
+colnames(Hx.df)[1] <- "label"
+
+df <- Hx.df %>% group_by(label) %>% 
+                filter (!duplicated(label)) %>% 
+                select(label, Sample, Class, Order, Family, Genus)
+
+
+library(ggtree)
+
+tre = phyloseq::phy_tree(Hx.cls) # retrieve the phylo-tree in new object
+x <- as_data_frame(tre)
+y <- full_join(x, df, by = 'label')
+tre <- NULL
+tre <- y %>% tidytree::as.treedata()
+
+
+library(RColorBrewer)
+colourCount = length(unique(df$Family))
+
+ggtree(tre, branch.length='none', layout='circular', aes(color=Family), na.rm = FALSE) +
+  theme(legend.position="right") +
+  scale_color_manual(values = c(getPalette(colourCount), "grey"), guide = guide_legend(ncol=2))
+  # + geom_tiplab(aes(subset=(Family=="Temoridae"))) # in process
+
+
+
+
+# ggtree: https://bioconductor.org/packages/devel/bioc/vignettes/ggtree/inst/doc/treeManipulation.html
+# tidy tree: https://cran.r-project.org/web/packages/tidytree/vignettes/tidytree.html
+#ggtree(tre) %<+% Hx.df + geom_point2(aes(color=Order), size=5, alpha=.5, na.rm = TRUE) +  theme(legend.position="left")
+
+# MRCA(tre, tip=c('Otu2558', "Otu0892"))
+
+# p+geom_hilight_encircle(node=600, fill="steelblue", alpha=.6)
+
+```
+
+
+## Citas
+1. Kozich JJ, Westcott SL, Baxter NT, Highlander SK, Schloss PD. (2013): Development of a dual-index sequencing strategy and curation pipeline for analyzing amplicon sequence data on the MiSeq Illumina sequencing platform. Applied and Environmental Microbiology. 79(17):5112-20.
+
+2. Yilmaz P, Parfrey LW, Yarza P, Gerken J, Pruesse E, Quast C, Schweer T, Peplies J, Ludwig W, Glöckner FO. (2014): The SILVA and "All-species Living Tree Project (LTP)" taxonomic frameworks. Nucl. Acids Res. 42:D643-D648.
+
+3. Rognes T, Flouri T, Nichols B, Quince C, Mahé F. (2016) VSEARCH: a versatile open source tool for metagenomics. PeerJ 4:e2584 
+
+4 .Westcott SL, Schloss PD. (2017). OptiClust, an improved method for assigning amplicon-based sequence data to operational taxonomic units. mSphere 2:e00073-17. 
+
+5. De Vargas, C., et al. (2015) Eukaryotic plankton diversity in the sunlit ocean. Science 348.6237 1261605.
+
+
+
+INCLUIR PROPUESTA DE tidyamplicons EN devtools::install_github("SWittouck/tidaymplicons", build_vignettes = TRUE)
