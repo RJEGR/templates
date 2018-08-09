@@ -137,6 +137,18 @@ for(i in ncol(tax_table(phyloseq)):1) {
 
 ```
 
+```{r}
+# preprocessing count-matrix
+
+# head(as(otu_table(phyloseq), "matrix")[,26]) # compare it ...
+# head(as(otu_table(phyloseq), "matrix")[,26] > 2)  # with this .. then:
+# length(apply(as(otu_table(phyloseq), "matrix") > 2, MARGIN = 1, sum))
+keepTaxa = apply(X = as(otu_table(phyloseq), "matrix") > 0,
+                 MARGIN = 1, FUN = sum) > 2 ## Remove OTUs not k greater than k (2L)
+table(keepTaxa)
+clean.phyloseq = prune_taxa(keepTaxa, phyloseq) 
+```
+
 
 ```{r Animalia}
 # And keep Animalia only:
@@ -277,7 +289,7 @@ En el siguiente enlace externo se encuentran la tabla de los índices de diversi
 ```{r, fig.align = "center", fig.cap = "Diversidad alpha"}
 prichnes <- plot_richness(rr, x="Station", color="Station", measures=c("Chao1", "Shannon", "InvSimpson"))
 prichnes$layers <- prichnes$layers[-1]
-prichnes + geom_point(size=5, alpha=0.7) +
+prichnes + geom_point(size=5, alpha=0.5) +
     scale_fill_manual(values = getPalette(nsamples(rr)))
 ```
 
@@ -298,16 +310,51 @@ p + geom_text(aes(label = Station, label.size = 10))
 
 ```
 
-```{r, fig.align = "center", fig.cap = "Additional plots - otus (abundantes) en una/ dos estaciones unicamente"}
+```{r, fig.align = "center", fig.cap = "top de filos (abundancia de otus) a lo largo de todas las estaciones. Aquellos que representan almenos 10% dela abundancia total por muestra"}
 
-dp <- phyloseq::psmelt(rr)
-colourCount = length(unique(tax_table(rr)[,3]))
+# also try: https://github.com/joey711/phyloseq/issues/494
+library(data.table)
+
+keepTaxa = apply(X = as(otu_table(rr), "matrix") > 2L,
+                 MARGIN = 1, FUN = sum) >= 2L ## Remove OTUs not k greater than k (2L)
+phy = prune_taxa(keepTaxa, rr) # get abundance in %
+phy <- transform_sample_counts(phy, function(x) x/sum(x)) # agglomerate taxa
+glom <- tax_glom(phy, taxrank = 'Phylum') # create dataframe from phyloseq object
+dat <- data.table(psmelt(glom)) # convert Phylum to a character vector from a factor because R
+dat$Phylum <- as.character(dat$Phylum) # group dataframe by Phylum, calculate median rel. abundance
+dat[, median := median(Abundance, na.rm = TRUE), 
+    by = "Phylum"] # Change name to remainder of Phylum less than 1%
+dat[(median <= 0.01), Phylum := "Remainder"]
+
+# boxplot
+ggplot(dat[Abundance > 0],
+       aes(x=Phylum,
+           y=Abundance)) + 
+  geom_boxplot() + 
+  coord_flip() +
+  scale_y_log10()
+```
+
+
+```{r, fig.align = "center", fig.cap = "top de otus (abundancia) a lo largo de todas las estaciones. Aquellos que representan almenos 10% dela abundancia total por muestra"}
+
+#xglom <- subset_taxa(Animalia, Family!="NA")
+#zglom <- tax_glom(xglom, taxrank = 'Family')
+
+f1 <- filterfun_sample(topp(0.1)) # fraction of the most abundant taxa to be kept
+wh1 <- genefilter_sample(Family, f1, A=42) # in all of the samples in which a taxa/OTU passed the filter
+ts <- prune_taxa(wh1, Family)
+ts
+dp <- psmelt(ts)
+
+#dp <- phyloseq::psmelt(rr)
+colourCount = length(unique(tax_table(ts)[,3]))
 getPalette = colorRampPalette(brewer.pal(9, "Spectral"))
 
 library(ggpubr)
 
-ggdotchart(dp, x = "Station", y ="Phylum",
- group = "Station", color = "Class",
+ggdotchart(dp, x = "Station", y ="Family",
+ group = "Station", color = "Phylum",
    palette = getPalette(colourCount),
    rotate = TRUE,
    sorting = "descending",
@@ -317,7 +364,7 @@ ggdotchart(dp, x = "Station", y ="Phylum",
   theme(axis.text.x = element_text(angle = 90))
 ```
 
-Visualizacion de hexanauplia
+## Visualizacion de hexanauplia
 
 ```{r, echo = FALSE}
 library(phyloseq)
