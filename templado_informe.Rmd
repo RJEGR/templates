@@ -251,8 +251,9 @@ h + facet_grid(Phylum+Class ~ .,
        ) +
   labs(fill = "Relative\nAbundance (%)")
 ```
-..
-```{r, echo = FALSE, fig.align = "center", fig.cap = "Curva de rarefacción que presenta la riqueza de OTUs a lo largo de las estaciones en relación al número de secuencias"}
+
+
+```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 9. Curva de rarefacción que presenta la riqueza de OTUs a lo largo de las estaciones en relación al número de secuencias"}
 # https://github.com/gauravsk/ranacapa/
 # and https://github.com/joey711/phyloseq/issues/143
 
@@ -272,6 +273,7 @@ rrplot +
 ```
 
 En el siguiente enlace externo se encuentran la tabla de los índices de diversidad alfa: PATHTOTHEFILE
+
 ```{r, fig.align = "center", fig.cap = "Diversidad alpha"}
 prichnes <- plot_richness(rr, x="Station", color="Station", measures=c("Chao1", "Shannon", "InvSimpson"))
 prichnes$layers <- prichnes$layers[-1]
@@ -400,4 +402,4 @@ ggtree(tre, branch.length='none', layout='circular', aes(color=Family), na.rm = 
 
 
 
-INCLUIR PROPUESTA DE tidyamplicons EN devtools::install_github("SWittouck/tidaymplicons", build_vignettes = TRUE)
+# INCLUIR PROPUESTA DE tidyamplicons EN devtools::install_github("SWittouck/tidaymplicons", build_vignettes = TRUE)
