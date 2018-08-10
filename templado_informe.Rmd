@@ -10,7 +10,9 @@ output:
 
 ```{r setup, include=FALSE}
 # Setting global option in all the chunks-code
-knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE 
+                      # fig.width=12, fig.height=8 #fig.path='~/metagenomics/phyloseq_in/figures/'
+                      )
 ```
 
 ## Generalidad del análisis
@@ -42,13 +44,13 @@ sample_names <- as.data.frame(t(sample_names))
 colnames(sample_names) <- c("Id","End")
 
 qc <- qc_read_collection(qc.files, sample_names = sample_names$End, modules = c("Per sequence quality scores", "Per base sequence quality"))
-qc_plot_collection(qc, modules = "Per sequence quality scores") +   theme_classic() + geom_line(size=1)
+qc_plot_collection(qc, modules = "Per sequence quality scores") +   theme_classic() + geom_line(size=1) + theme(plot.title = element_blank(), plot.subtitle = element_blank())
 
 ```
 
 ```{r, fig.align = "center", fig.cap = "Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (R1) y Reverse (R2)."}
 
-qc_plot_collection(qc, modules = "Per base sequence quality") +   theme_classic() + geom_line(size=2)
+qc_plot_collection(qc, modules = "Per base sequence quality") + geom_line(size=2) + theme_classic() + theme(plot.title = element_blank(), plot.subtitle = element_blank())
 
 ```
 
@@ -77,16 +79,21 @@ library(phyloseq)
 biom.dir <- c("/Users/cigom/metagenomics/phyloseq_in/")
 mbiom = list.files(biom.dir, full.names = TRUE, pattern = "biom")
 mgroup = list.files(biom.dir, full.names = TRUE, pattern = "cigom.groups")
-
 # An example of group file could be created as using the files file inputed in mothur
 # cat cigom.files | awk '{print $1}' > groups
 # cat cigom.files | awk '{print $1}' | cut -d"_" -f1,2,3,4,5 | sed 's/_/ /g' > factors
-# paste groups factors | sed '1iID Run Cruice Station Barcode SampleType' | tr "\t" " " > cigom.groups
+# paste groups factors | sed '1iID Run Cruice Estacion Barcode SampleType' | tr "\t" " " > cigom.groups
 
 # Format sample(group) names
 
 group = read.csv(mgroup[1], header=T, stringsAsFactors = FALSE, sep = "")
+
 rownames(group) <- group[, 1]
+
+colnames(group) <- c("ID", "Corrida", "Crucero", "Estacion", "Marcador", "Tipo")
+
+group$Transecto <- substr(group$Estacion, 1, 1)
+
 mgroup = sample_data(group)
 
 
@@ -114,9 +121,10 @@ if (identical(taxa_names(obj), sort(t$tip.label))) { phyloseq = merge_phyloseq(o
 
 # parsing colnames (rename ranks)  and rownames (for taxa==OTU names, TRUE)
 
-Rank <- c("Kingdom", "Phylum", "Class", "Order", 
-                   			 "Family", "Genus", "Species")
-
+#Rank <- c("Kingdom", "Phylum", "Class", "Order", 
+ #                  			 "Family", "Genus", "Species")
+Rank <- c("Reino", "Filo", "Clase", "Orden", 
+                   			 "Familia", "Genero", "Especie")
 
 colnames(tax_table(phyloseq)) <- c(Rank, "Extra1")
 tax_table(phyloseq)[,8] <- 7
@@ -145,108 +153,87 @@ for(i in ncol(tax_table(phyloseq)):1) {
 # length(apply(as(otu_table(phyloseq), "matrix") > 2, MARGIN = 1, sum))
 keepTaxa = apply(X = as(otu_table(phyloseq), "matrix") > 0,
                  MARGIN = 1, FUN = sum) > 2 ## Remove OTUs not k greater than k (2L)
-table(keepTaxa)
+# table(keepTaxa)
 clean.phyloseq = prune_taxa(keepTaxa, phyloseq) 
 ```
 
 
 ```{r Animalia}
 # And keep Animalia only:
-Animalia <- subset_taxa(phyloseq, Kingdom == "Animalia")
+
+phyloseq = clean.phyloseq 
+
+Animalia <- subset_taxa(phyloseq, Reino == "Animalia")
 # And removing any missing i.e. abundance of zero
 Animalia <- prune_taxa(taxa_sums(Animalia) > 0, Animalia) 
 ```
 
 
 ```{r}
-# Filter by Across-Sample Criteria
-library(RColorBrewer)
-theme_set(theme_classic())
-
-taxaSums <- plyr::ldply(taxa_sums(Animalia), rbind)
-colnames(taxaSums) <- c("Taxa", "Size")
-taxaSums <- taxaSums[order(-taxaSums[,2]),]
-# hist(taxaSums$Size) 
-
-
-sampleSums <- plyr::ldply(sample_sums(Animalia), rbind)
-colnames(sampleSums) <- c("Sample", "Abundance")
-sampleSums <- sampleSums[order(-sampleSums[,2]),]
-
-
+# transform dataset to percent
+#Animalia <- transform_sample_counts(Animalia, function(x) log_trans(4))
 Animalia <- transform_sample_counts(Animalia, function(x) (x / sum (x) ))
 Animalia <- transform_sample_counts(Animalia, function(x) x * 100 ) 
-
-#Aprune <- filter_taxa(Animalia, function(x) sum(x > 1) > (0.1*length(x)), TRUE)
-
-# niceplot for small subset 
-# plot_bar(phyloseq, "Family", fill="Phylum", facet_grid=~Station) 
-# .. geom_bar(stat="identity") +
-#      scale_fill_brewer(palette="Spectral")
 
 ```
 
 ```{r, fig.align = "center", fig.cap = "Figura 4. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 1% en la comunidad.", out.width='\\textwidth'}
 # Agglomerate taxa of the same Specie type [phylotyping] // demora 1-2 min //
-Phylum <-tax_glom(Animalia, taxrank="Phylum")
+Phylum <-tax_glom(Animalia, taxrank="Filo")
 
-plot_heatmap(Phylum, "NMDS", "bray", 
-             sample.label = "Station", 
-             taxa.label = "Phylum",
+plot_heatmap(Phylum, 
+             #"NMDS", "bray", 
+             sample.label = "Estacion", 
+             sample.order = "Transecto",
+             taxa.label = "Filo",
              na.value = "white", trans = NULL,
              low = "#FFFFD9", high = "#081D58") +
-        labs(fill = "Relative\nAbundance (%)")
+        labs(fill = "Abundancia\nRelativa (%)")
 ```
 
 
 ```{r, fig.align = "center", fig.cap = "Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 2 % en la comunidad."}
-Class <-tax_glom(Animalia, taxrank="Class")
+Class <-tax_glom(Animalia, taxrank="Clase")
 
-plot_heatmap(Class, "NMDS", "bray", 
-             sample.label = "Station", 
-             taxa.label = "Class",
+plot_heatmap(Class, 
+             #"NMDS", "bray", 
+             sample.label = "Estacion", 
+             sample.order = "Transecto",
+             taxa.label = "Clase",
              na.value = "white", trans = NULL,
              low = "#FFFFD9", high = "#081D58") +
-         labs(fill = "Relative\nAbundance (%)")
+         labs(fill = "Abundancia\nRelativa (%)")
 ```
 
 ```{r , fig.align = "center", fig.cap="Figura 6. Composición de las comunidades a nivel Orden a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5 % en la comunidad.", fig.height = 7, fig.width = 5}
-Order <-tax_glom(Animalia, taxrank="Order")
+Order <-tax_glom(Animalia, taxrank="Orden")
 
-plot_heatmap(Order, "NMDS", "bray", 
-             sample.label = "Station", 
-             taxa.label = "Order",
+plot_heatmap(Order, 
+             #"NMDS", "bray", 
+             sample.label = "Estacion", 
+             sample.order = "Transecto",
+             taxa.label = "Orden",
              na.value = "white", trans = NULL,
              low = "#FFFFD9", high = "#081D58") +
-         labs(fill = "Relative\nAbundance (%)")
+         labs(fill = "Abundancia\nRelativa (%)")
 
 ```
 
 
-```{r , fig.align = "center", fig.cap="Figura 7. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5 % en la comunidad", fig.width = 5, fig.height = 7}
+```{r , fig.align = "center", fig.cap="Figura 7. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5 % en la comunidad. Respectivamente, se indican sus rangos Filos y Clase correspondientes en las columnas del panel izquierdo", fig.width = 5, fig.height = 7}
 
-Family <-tax_glom(Animalia, taxrank="Family")
+Family <-tax_glom(Animalia, taxrank="Familia")
 
-plot_heatmap(Family, "NMDS", "bray", 
-             sample.label = "Station", 
-             taxa.label = "Family",
+h <- plot_heatmap(Family, 
+                  #"NMDS", "bray", 
+             sample.label = "Estacion", 
+             sample.order = "Transecto",
+             taxa.label = "Familia",
              na.value = "white", trans = NULL,
              low = "#FFFFD9", high = "#081D58") +
-        labs(fill = "Relative\nAbundance (%)")
-```
+        labs(fill = "Abundancia\nRelativa (%)")
 
-
-```{r, fig.align = "center", fig.cap = "Figura 8. Composición de las comunidades a nivel Género a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5% en la comunidad. Respectivamente, se indican sus rangos Filos y Clase correspondientes en las columnas del panel izquierdo", fig.width = 5, fig.height = 6}
-
-Genus <-tax_glom(Animalia, taxrank="Genus")
-
-h <- plot_heatmap(Genus, "NMDS", "bray", 
-             sample.label = "Station", 
-             taxa.label = "Genus",
-             na.value = "white", trans = NULL,
-             low = "#FFFFD9", high = "#081D58")
-
-h + facet_grid(Phylum+Class ~ ., 
+h + facet_grid(Filo+Clase ~ ., 
                scales = "free", space = "free" 
     #                             switch = "y"
               ) + 
@@ -259,39 +246,153 @@ h + facet_grid(Phylum+Class ~ .,
                                   size = 0.1),
   panel.spacing = unit(0.01, "lines")
        ) +
-  labs(fill = "Relative\nAbundance (%)")
+  labs(fill = "Abundancia\nRelativa (%)")
 ```
 
 
-```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 9. Curva de rarefacción que presenta la riqueza de OTUs a lo largo de las estaciones en relación al número de secuencias"}
+```{r, fig.align = "center", fig.cap = "Figura 8. Composición de las comunidades a nivel Género a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5% en la comunidad." }
+
+Genus <-tax_glom(Animalia, taxrank="Genero")
+
+h <- plot_heatmap(Genus, 
+                  #"NMDS", "bray", 
+             sample.label = "Estacion", 
+             sample.order = "Transecto",
+             taxa.label = "Genero",
+             na.value = "white", trans = NULL,
+             low = "#FFFFD9", high = "#081D58")
+
+
+```
+
+```{r}
+ggrare2 <- function (physeq_object, step = 10, label = NULL, color = NULL, 
+          plot = TRUE, parallel = FALSE, se = TRUE) 
+{
+  x <- methods::as(phyloseq::otu_table(physeq_object), "matrix")
+  if (phyloseq::taxa_are_rows(physeq_object)) {
+    x <- t(x)
+  }
+  tot <- rowSums(x)
+  S <- rowSums(x > 0)
+  nr <- nrow(x)
+  rarefun <- function(i) {
+    #cat(paste("rarefying sample", rownames(x)[i]), sep = "\n")
+    n <- seq(1, tot[i], by = step)
+    if (n[length(n)] != tot[i]) {
+      n <- c(n, tot[i])
+    }
+    y <- vegan::rarefy(x[i, , drop = FALSE], n, se = se)
+    if (nrow(y) != 1) {
+      rownames(y) <- c(".S", ".se")
+      return(data.frame(t(y), Size = n, Sample = rownames(x)[i]))
+    }
+    else {
+      return(data.frame(.S = y[1, ], Size = n, Sample = rownames(x)[i]))
+    }
+  }
+  if (parallel) {
+    out <- parallel::mclapply(seq_len(nr), rarefun, mc.preschedule = FALSE)
+  }
+  else {
+    out <- lapply(seq_len(nr), rarefun)
+  }
+  df <- do.call(rbind, out)
+  if (!is.null(phyloseq::sample_data(physeq_object, FALSE))) {
+    sdf <- methods::as(phyloseq::sample_data(physeq_object), 
+                       "data.frame")
+    sdf$Sample <- rownames(sdf)
+    data <- merge(df, sdf, by = "Sample")
+    labels <- data.frame(x = tot, y = S, Sample = rownames(x))
+    labels <- merge(labels, sdf, by = "Sample")
+  }
+  if (length(color) > 1) {
+    data$color <- color
+    names(data)[names(data) == "color"] <- deparse(substitute(color))
+    color <- deparse(substitute(color))
+  }
+  if (length(label) > 1) {
+    labels$label <- label
+    names(labels)[names(labels) == "label"] <- deparse(substitute(label))
+    label <- deparse(substitute(label))
+  }
+  p <- ggplot2::ggplot(data = data, ggplot2::aes_string(x = "Size", 
+                                                        y = ".S", group = "Sample", color = color))
+  p <- p + ggplot2::labs(x = "Sequence Sample Size", y = "Species Richness")
+  if (!is.null(label)) {
+    p <- p + ggplot2::geom_text(data = labels, ggplot2::aes_string(x = "x", 
+                                                                   y = "y", label = label, color = color), size = 4, 
+                                hjust = 0)
+  }
+  p <- p + ggplot2::geom_line()
+  if (se) {
+    p <- p + ggplot2::geom_ribbon(ggplot2::aes_string(ymin = ".S - .se", 
+                                                      ymax = ".S + .se", color = NULL, fill = color), alpha = 0.2)
+  }
+  if (plot) {
+    plot(p)
+  }
+  invisible(p)
+}
+```
+
+```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 9. Curva de rarefacción que presenta la riqueza de OTUs a lo largo de las estaciones en relación al número de secuencias",  fig.width = 4, fig.height = 4, tidy= TRUE, echo=FALSE, message=FALSE, warning=FALSE}
 # https://github.com/gauravsk/ranacapa/
 # and https://github.com/joey711/phyloseq/issues/143
 
 library(ranacapa)
+theme_set(theme_classic())
 
-rr <- subset_taxa(phyloseq, Kingdom == "Animalia")
+rr <- subset_taxa(phyloseq, Reino == "Animalia")
 minsample <- min(sample_sums(rr))
 
-rrplot <- ggrare(rr, step = 100, label = "Station", 
-                 #color="Station", 
+rrplot <- ggrare2(rr, step = 100, label = "Estacion", 
+                 color="Transecto", 
                  se = FALSE, plot = FALSE) 
 
 rrplot +
   xlab("Sequences number") + ylab("OTUs number") + 
     theme(text = element_text(size=12),
-        panel.background = element_blank()) +
-  geom_point(size=0.7) +
-  geom_hline(yintercept = 100, linetype = "dashed")
+        panel.background = element_blank(), legend.position = "none") +
+  geom_point(size=0.7)
+  #geom_hline(yintercept = 100, linetype = "dashed") 
+  # scale_color_manual(values=getPalette(length(unique(group$Transecto))))
 ```
 
-En el siguiente enlace externo se encuentran la tabla de los índices de diversidad alfa: PATHTOTHEFILE
 
-```{r, fig.align = "center", fig.cap = "Diversidad alpha"}
-prichnes <- plot_richness(rr, x="Station", color="Station", measures=c("Chao1", "Shannon", "InvSimpson"))
+
+```{r, fig.align = "center", fig.cap = "Diversidad alpha", fig.width = 7, fig.height = 5}
+library(RColorBrewer)
+getPalette = colorRampPalette(brewer.pal(9, "YlOrRd"))
+prichnes <- plot_richness(rr, x="Estacion", color="Estacion", measures=c("Shannon", "InvSimpson"))
 prichnes$layers <- prichnes$layers[-1]
-prichnes + geom_point(size=5, alpha=0.5) +
-    scale_fill_manual(values = getPalette(nsamples(rr)))
+prichnes + scale_color_manual(values=getPalette(nsamples(rr))) + 
+    geom_point(size=5, alpha=0.5) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()
+        )
 ```
+
+
+```{r, fig.width=10}
+library(phyloseq)
+richness <- estimate_richness(rr, measures = c("Observed", 
+                                   "Chao1", "ACE", 
+                                   "Fisher", "Shannon", "InvSimpson"
+                                   ))
+rownames(richness) <- group$Estacion
+# devtools::install_github("haozhu233/kableExtra")
+#library(kableExtra)
+library(dplyr)
+library(pander)
+richness %>% pander()
+   
+  # kable(escape = F, align = "c") %>%
+  #  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), full_width = F)
+
+```
+
 
 La diferencia en composición de la comunidad de zooplancton entre estaciones se evaluó mediante un análisis de coordenadas principales usando una matriz de distancias Jaccard. En la figura 10 se observa que la mayoría de las estaciones forman agrupaciones indicando comunidades similares mientras que son pocas estaciones que se separan, indicando comunidades diferentes al resto del grupo.
 
@@ -300,13 +401,13 @@ La diferencia en composición de la comunidad de zooplancton entre estaciones se
 iDist <- distance(rr, method="binary") # Jaccard
 iMDS  <- ordinate(rr, "PCoA", distance=iDist) 
 
-p <- plot_ordination(rr, iMDS
-                     #color="Station"
-                     #label="Station" 
+p <- plot_ordination(rr, iMDS,
+                     color="Transecto"
+                     #label="Estacion"
                      #shape="Cruice"
                      ) 
 p$layers <- p$layers[-1]
-p + geom_text(aes(label = Station, label.size = 10)) 
+p + geom_text(aes(label = Estacion, label.size = 10)) + theme(legend.position = "none")
 
 ```
 
@@ -315,52 +416,101 @@ p + geom_text(aes(label = Station, label.size = 10))
 # also try: https://github.com/joey711/phyloseq/issues/494
 library(data.table)
 
-keepTaxa = apply(X = as(otu_table(rr), "matrix") > 2L,
+keepTaxa = apply(X = as(otu_table(rr), "matrix") > 0L,
                  MARGIN = 1, FUN = sum) >= 2L ## Remove OTUs not k greater than k (2L)
 phy = prune_taxa(keepTaxa, rr) # get abundance in %
 phy <- transform_sample_counts(phy, function(x) x/sum(x)) # agglomerate taxa
-glom <- tax_glom(phy, taxrank = 'Phylum') # create dataframe from phyloseq object
-dat <- data.table(psmelt(glom)) # convert Phylum to a character vector from a factor because R
-dat$Phylum <- as.character(dat$Phylum) # group dataframe by Phylum, calculate median rel. abundance
+glom <- tax_glom(phy, taxrank = 'Filo') # create dataframe from phyloseq object
+dat <- data.table(psmelt(glom)) # convert Filo to a character vector from a factor because R
+dat$Filo <- as.character(dat$Filo) # group dataframe by Filo, calculate median rel. abundance
 dat[, median := median(Abundance, na.rm = TRUE), 
-    by = "Phylum"] # Change name to remainder of Phylum less than 1%
-dat[(median <= 0.01), Phylum := "Remainder"]
+    by = ""] # Change name to remainder of Filo less than 1%
+dat[(median <= 0.01), Filo := "Otros"]
 
 # boxplot
-ggplot(dat[Abundance > 0],
-       aes(x=Phylum,
-           y=Abundance)) + 
-  geom_boxplot() + 
-  coord_flip() +
-  scale_y_log10()
+#ggplot(dat[Abundance > 0],
+#       aes(x=Filo,
+#           y=Abundance)) + 
+#  geom_boxplot() + 
+#  coord_flip() +
+#  scale_y_log10()
 ```
 
 
-```{r, fig.align = "center", fig.cap = "top de otus (abundancia) a lo largo de todas las estaciones. Aquellos que representan almenos 10% dela abundancia total por muestra"}
+```{r}
 
-#xglom <- subset_taxa(Animalia, Family!="NA")
-#zglom <- tax_glom(xglom, taxrank = 'Family')
+# Filter across sample-Sample Criteria
+# https://github.com/joey711/phyloseq/issues/847 Most abundant Taxa in individual samples 
+find.taxa <- function(x,taxa, find, samples){
+  # select find.taxa(phyloseq-obj, "Rank-level", find either, "max" or "min" Abundance, samples_data(x)). Ex. x <- find.taxa(phyloseq, "Phylum", "min")
+  wfind <- as.name(paste0("which.",find))
+  require(phyloseq)
+  x <- subset_taxa(x, Reino == "Animalia")
+  top.taxa <- tax_glom(x, taxa)
+  otu <- otu_table(t(top.taxa)) # remove the transformation if using a merge_sample object
+  tax <- tax_table(top.taxa)
+  j<-apply(otu,1, wfind)
+  k <- j[!duplicated(j)]
+  l <- as.matrix(tax[k,])
+  m <- as.matrix(otu[,k])
+  colnames(m) = l[,taxa]
+  n <- colnames(m)[apply(m,1, wfind)]
+  s <- sample_data(x)[, samples]
+  m <- as.data.frame(cbind(m,n, s))
+  return(m)
+}
 
-f1 <- filterfun_sample(topp(0.1)) # fraction of the most abundant taxa to be kept
-wh1 <- genefilter_sample(Family, f1, A=42) # in all of the samples in which a taxa/OTU passed the filter
-ts <- prune_taxa(wh1, Family)
-ts
-dp <- psmelt(ts)
+min.taxa <- find.taxa(phyloseq, "Clase", "min", "Estacion")
+max.taxa <- find.taxa(phyloseq, "Clase", "max", "Estacion")
+# niceplot for small subset 
+# plot_bar(phyloseq, "Family", fill="Phylum", facet_grid=~Estacion) 
+# .. geom_bar(stat="identity") +
+#      scale_fill_brewer(palette="Spectral")
 
-#dp <- phyloseq::psmelt(rr)
-colourCount = length(unique(tax_table(ts)[,3]))
-getPalette = colorRampPalette(brewer.pal(9, "Spectral"))
+```
+
+```{r, fig.align = "center", fig.cap = " Taxones (mas abundantes) a lo largo de todas las estaciones - Nivel Clase"}
+library(RColorBrewer)
+theme_set(theme_classic())
+
+getPalette = colorRampPalette(brewer.pal(8, "RdYlBu"))
 
 library(ggpubr)
 
-ggdotchart(dp, x = "Station", y ="Family",
- group = "Station", color = "Phylum",
+gp <- melt(max.taxa)
+colourCount <- length((unique(gp$variable)))
+
+ggdotchart(gp, x = "variable", y ="Clase",
+   #group = "Phylum", 
+   color = "Clase",
    palette = getPalette(colourCount),
    rotate = TRUE,
    sorting = "descending",
    ggtheme = theme_bw(),
    y.text.col = TRUE,
-   dot.size = "Abundance") + 
+   dot.size = "value") + 
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+```{r, fig.align = "center", fig.cap = "Taxones (menos abundantes) a lo largo de todas las estaciones - Nivel clase"}
+library(RColorBrewer)
+theme_set(theme_classic())
+
+getPalette = colorRampPalette(brewer.pal(8, "RdYlBu"))
+
+gp <- melt(min.taxa)
+colourCount <- length((unique(gp$variable)))
+
+ggdotchart(gp, x = "variable", y ="Clase",
+   #group = "Phylum", 
+   color = "Clase",
+   palette = getPalette(colourCount),
+   rotate = TRUE,
+   sorting = "descending",
+   ggtheme = theme_bw(),
+   y.text.col = TRUE,
+   dot.size = "value") + 
   theme(axis.text.x = element_text(angle = 90))
 ```
 
@@ -368,7 +518,7 @@ ggdotchart(dp, x = "Station", y ="Family",
 
 ```{r, echo = FALSE}
 library(phyloseq)
-Hx.cls = subset_taxa(phyloseq, Class=="Hexanauplia")
+Hx.cls = subset_taxa(phyloseq, Clase=="Hexanauplia")
 Hx.cls = prune_samples(sample_sums(Hx.cls)>=20, Hx.cls) # filter where the sum of sample are higher than 20 barcodes per sample. ie.  remove samples with less than 20 total reads
 Hx.cls <- transform_sample_counts(Hx.cls, function(x) (x / sum (x) )) 
 Hx.cls <- transform_sample_counts(Hx.cls, function(x) x * 100 ) 
@@ -387,10 +537,10 @@ getPalette = colorRampPalette(brewer.pal(9, "Spectral"))
 library(RColorBrewer)
 theme_set( theme_classic())
 
-plot_bar(Hx.cls, "Station", fill="Family") +
+plot_bar(Hx.cls, "Estacion", fill="Familia") +
   geom_bar(stat="identity") +
     scale_fill_manual(values = getPalette(colourCount)) +
-   ylab("Relative Abundance (%)") +  coord_flip() +
+   ylab("Abundancia Relativa (%)") +  coord_flip() +
   guides(fill=guide_legend(ncol=3))
 
 ```
@@ -398,14 +548,14 @@ plot_bar(Hx.cls, "Station", fill="Family") +
 
 ```{r, fig.align = "center", fig.cap="Hexanauplia tree (Family labeled)",  fig.width = 7}
 
-# plot_tree(Hx.cls, shape="Order", color="Station", ladderize="left") 
+# plot_tree(Hx.cls, shape="Order", color="Estacion", ladderize="left") 
 library(dplyr)
 Hx.df <- as_tibble(phyloseq::psmelt(Hx.cls))
 colnames(Hx.df)[1] <- "label"
 
 df <- Hx.df %>% group_by(label) %>% 
   filter (!duplicated(label)) %>% 
-  select(label, Sample, Class, Order, Family, Genus)
+  select(label, Sample, Clase, Orden, Familia, Genero)
 
 
 library(ggtree)
@@ -418,9 +568,9 @@ tre <- y %>% tidytree::as.treedata()
 
 
 library(RColorBrewer)
-colourCount = length(unique(df$Family))
+colourCount = length(unique(df$Familia))
 
-ggtree(tre, branch.length='none', layout='circular', aes(color=Family), na.rm = FALSE) +
+ggtree(tre, branch.length='none', layout='circular', aes(color=Familia), na.rm = FALSE) +
   theme(legend.position="right") +
   scale_color_manual(values = c(getPalette(colourCount), "grey"), guide = guide_legend(ncol=2))
 # + geom_tiplab(aes(subset=(Family=="Temoridae"))) # in process
@@ -437,8 +587,6 @@ ggtree(tre, branch.length='none', layout='circular', aes(color=Family), na.rm = 
 # p+geom_hilight_encircle(node=600, fill="steelblue", alpha=.6)
 
 ```
-
-
 
 
 ## Citas
