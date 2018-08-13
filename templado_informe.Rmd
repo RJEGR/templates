@@ -60,7 +60,52 @@ El análisis metagenómico se llevó a cabo en el cluster de cómputo OMICA-cice
 
 Se removieron quimeras implementando la herramienta VSEARCH (Mahé F. et. al., 2016); las secuencias resultantes fueron agrupadas mediante el algoritmo Opticlust (Schloss et. al., 2017) tomando un parámetro de 97% de similitud entre secuencias para ser consideradas pertenecientes una unidad taxonómica operacional (OTU). Se realizó la asignación taxonómica de las secuencias procesadas usando un algoritmo de clasificación de Bayes ingenuo (Wang, 2007) y se obtuvo la taxonomía consenso para cada OTU. La base de datos para asignación taxonómica está compuesta de las secuencias de la base de datos W2-PR2 (de Vargas, 2015) que fue generada en un estudio metagenómico de amplio muestreo (descargada de su sitio web el 2 de Mayo de 2017) en la que se implementó la nomenclatura utilizada en la base de datos del registro mundial de especies marinas: WORMS (WoRMS Editorial Board, 2017). La figura 3 resume la abundancia de secuencias obtenidas a través del análisis metagenómico :
 
-```{r, echo = FALSE, fig.align = "center", fig.cap = "El número de secuencias totales (azul), secuencias de buena calidad (GQ, rojo), secuencias Alineadas y quimeras removidas (ANC, Amarillo) y secuencias clasificadas en el linaje Animal (Verde) a lo largo de las estaciones."}
+```{r, echo = FALSE, fig.align = "center", fig.cap = "El número de secuencias totales, secuencias de buena calidad, secuencias Alineadas (quimeras removidas)  y secuencias clasificadas a lo largo de las estaciones.", out.width='\\textwidth'}
+
+ct.dir <- c("/Users/cigom/metagenomics/phyloseq_in/count_table")
+ct.files <- list.files(ct.dir, full.names = TRUE)
+
+
+# read the list of count tables
+count.tbl <- lapply(ct.files, read.csv, sep = "\t")
+
+# ..then sum the columns per sample
+list <- list()
+for (i in 1:length(ct.files)) {
+    list[[i]] <- colSums(count.tbl[[i]][-c(1:2)])
+}
+
+# tidy the object list and remove duplicate values:
+df <- do.call(rbind, list)
+df <- t(df[!duplicated(df), ])
+
+
+df_names <- strsplit(rownames(df), "_")
+df_names <- sapply(df_names, "[", c(3))
+
+init.contigs <- read.csv("/Users/cigom/metagenomics/phyloseq_in/initial.contigs", sep = "\t" )
+
+plotdat <- cbind(df_names, init.contigs, df)
+colnames(plotdat) <- c("Estacion", "Total", "Buena Calidad", "Alineamiento", "Clasificacion")
+rownames(plotdat) <- df_names
+
+plotdat <- reshape::melt(plotdat)
+
+library(ggpubr)
+ggbarplot(plotdat, x = "Estacion", y = "value",
+          fill = "variable",           # change fill color by mpg_level
+          color = "variable",            # Set bar border colors to white
+          palette = "Paired",            # jco journal color palett. see ?ggpar
+          x.text.angle = 90,          # Rotate vertically x axis texts
+          merge = TRUE,
+          width = 0.7,
+          yscale = "none",
+          ylab = "Numero de secuencias",
+          legend.title = "Secuencias",
+          rotate = TRUE,
+          ggtheme = theme_minimal()
+          #position = position_fill(vjust = 0.05)
+          )
 
 ```
 
