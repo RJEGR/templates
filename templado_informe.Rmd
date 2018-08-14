@@ -1,32 +1,38 @@
 ---
-title: "Análisis metagenómico de la diversidad de plancton en la zona epipelágica del golfo de México"
+title: Análisis bioinformático de la diversidad de zooplancton en la zona epipelágica
+  del Golfo de México
 author: "Grupo Bioinformatica"
 date: "Informe `r format(Sys.Date())`"
-output: 
-  word_document 
-#    reference_docx: 
-# output: pdf_document
+output:
+  pdf_document: default
+  word_document: default
 ---
 
 ```{r setup, include=FALSE}
 # Setting global option in all the chunks-code
-knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE 
+knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300 
                       # fig.width=12, fig.height=8 #fig.path='~/metagenomics/phyloseq_in/figures/'
                       )
 ```
 
-## Generalidad del análisis
+## Generalidades del análisis
 
-Los datos provienen de muestras obtenidas en *42* estaciones que cubrió el crucero exploratorio *XIXIMI-06* Para cada muestra se generaron amplicones de la región v9 del gen ribosomal 18S. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 150 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del cicese-cigom). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
+Los datos provienen de muestras obtenidas en 42 estaciones que cubrió el crucero exploratorio XIXIMI-06. Para cada muestra se generaron amplicones de la región v9 del gen ribosomal 18S. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 150 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del CICESE-CIGOM). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
 
-El resumen del análisis se divide entre en tres etapas cruciales:
-*Pre-procesamiento y alineamiento de lecturas. 
-*Identificación, abundancia y clasificación taxonómica de OTUs.
-*Estimación de los índices de diversidad y presentación gráfica resultados.
+El resumen del análisis se divide entre en tres etapas principales: 
+
+- Pre-procesamiento y alineamiento de secuencias.
+- Identificación, abundancia y clasificación taxonómica de OTUs. 
+- Estimación de los índices de diversidad y presentación gráfica de resultados.
+
+El análisis metagenómico se llevó a cabo en el cluster de cómputo OMICA-CICESE mediante el programa mothur version 1.39.5. La tubería del análisis fue adaptada de la sugerida por Schloss et al. 2013 para amplicones de la región v9 del gen 18S rRNA secuenciados por Illumina.
+
 
 ### Pre-procesamiento y alineamiento de lecturas
 
-Durante el pre-procesamiento se demultiplexa y eliminan secuencias ambiguas y de puntaje de calidad phred menor a 20. La siguiente imagen resume las métricas de las bibliotecas illumina obtenidas para el crucero exploratorio (Figura 1 y 2).
+Durante el pre-procesamiento se demultiplexa y eliminan secuencias ambiguas y de puntaje de calidad phred menor a 20. Las Figuras 1 y 2  resumen las métricas de calidad de las bibliotecas. En la Figura 1 se muestra el número de lecturas (Forward, F y Reverse, R) obtenido en relación al promedio de su calidad. Se puede observar que la mayoría de las lecturas tienen buena calidad (>20). 
+
+En la Figura 2 se muestra el promedio de la calidad de los nucleótidos, en relación a su posición en la lectura (Forward, F y Reverse, R). En este gráfico se observa una buena calidad (> 20) por posición a lo largo de toda la lectura (~150 nt). 
 
 
 ```{r, fig.align = "center", fig.cap = "Figura 1. Promedio del puntaje de calidad Phred a lo largo de las lecturas de las bibliotecas. Bibliotecas Forward (R1) y Reverse (R2)."}
@@ -43,28 +49,35 @@ sample_names <- sapply(sample_names, "[", c(1,4))
 sample_names <- as.data.frame(t(sample_names))
 colnames(sample_names) <- c("Id","End")
 
+sample_names$End <- as.character(sample_names$End)
+sample_names$End[sample_names$End == "R1"] <- "F"
+sample_names$End[sample_names$End == "R2"] <- "R"
+
 qc <- qc_read_collection(qc.files, sample_names = sample_names$End, modules = c("Per sequence quality scores", "Per base sequence quality"))
-qc_plot_collection(qc, modules = "Per sequence quality scores") +   theme_classic() + geom_line(size=1) + theme(plot.title = element_blank(), plot.subtitle = element_blank())
+qc_plot_collection(qc, modules = "Per sequence quality scores") +   theme_classic() + geom_line(size=1) + theme(plot.title = element_blank(), plot.subtitle = element_blank()) + ylab("Secuencias") + xlab("Calidad media de secuencia (Puntaje Phred)") + labs(color = "Biblioteca")
 
 ```
 
-```{r, fig.align = "center", fig.cap = "Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (R1) y Reverse (R2)."}
+```{r, fig.align = "center", fig.cap = "Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (F) y Reverse (R)."}
 
-qc_plot_collection(qc, modules = "Per base sequence quality") + geom_line(size=2) + theme_classic() + theme(plot.title = element_blank(), plot.subtitle = element_blank())
+qc_plot_collection(qc, modules = "Per base sequence quality") + geom_line(size=2) + theme_classic() + theme(plot.title = element_blank(), plot.subtitle = element_blank()) + ylab("Mediana de las puntuaciones de calidad") + xlab("Posición (pb)") + labs(color = "Biblioteca")
 
 ```
 
-El análisis metagenómico se llevó a cabo en el cluster de cómputo OMICA-cicese mediante el programa mothur version 1.39.5. La tubería del análisis fue adaptada del sugerido por  Schloss et al. 2013 para amplicones de la región v9 del gen 18S rRNA secuenciados por Illumina. Después del pre-procesamiento, las lecturas se transformaron a un set de secuencias unicas para implementar el alineamiento con la región v9  de la base de secuencias de referencia Silva v128 (Oliver-Glockner et. al. 2014). Entre aquellas que presentaron homología con la base de referencia mayor al 50% en identidad se implementa un paso de filtrado para eliminar falsos homopolímeros (max=10) y se volvieron a identificar secuencia únicas, posteriormente se quitaron aquellas secuencias que podrían tener al menos 2 cambios en nucleótidos, en base a la matriz generada en el alineamiento (Figura 3). 
+La información de la calidad de cada nucleótido es usada por Mothur para unir las lecturas Forward y Reverse en una secuencia llamada 'contig'. La calidad del contig es evaluada y se descartan aquellos que no cumplen filtros de longitud (100-250 nt) y calidad (N's = 0).
+
+Después del pre-procesamiento, se reduce el numero de lecturas a un set de secuencias únicas para reducir el costo computacional. Posteriormente se realiza  el alineamiento de los contigs con la región v9 de la base de secuencias de referencia Silva v132 (Oliver-Glockner et. al. 2014). Entre aquellas que presentan homología con la base de referencia mayor al 50% en identidad se implementa un paso de filtrado para eliminar falsos homopolímeros (max=10), para reducir el costo computacional se agrupan aquellas secuencias que tienen hasta 2 nucleótidos de diferencia.  La limpieza de los contigs finaliza con la identificación y eliminación de contigs quiméricos usando el programa VSEARCH (Mahé F. et. al., 2016). 
+
+La Figura 3 muestra un resumen de la cantidad de secuencias por muestra a través de las diferentes etapas del procesamiento de las secuencias 18S. Se denomina 'barcodes' a las secuencias resultantes. Cada barcode representa una secuencia biológica.
 
 ## Identificación, abundancia y clasificación taxonómica de OTUs
 
-Se removieron quimeras implementando la herramienta VSEARCH (Mahé F. et. al., 2016); las secuencias resultantes fueron agrupadas mediante el algoritmo Opticlust (Schloss et. al., 2017) tomando un parámetro de 97% de similitud entre secuencias para ser consideradas pertenecientes una unidad taxonómica operacional (OTU). Se realizó la asignación taxonómica de las secuencias procesadas usando un algoritmo de clasificación de Bayes ingenuo (Wang, 2007) y se obtuvo la taxonomía consenso para cada OTU. La base de datos para asignación taxonómica está compuesta de las secuencias de la base de datos W2-PR2 (de Vargas, 2015) que fue generada en un estudio metagenómico de amplio muestreo (descargada de su sitio web el 2 de Mayo de 2017) en la que se implementó la nomenclatura utilizada en la base de datos del registro mundial de especies marinas: WORMS (WoRMS Editorial Board, 2017). La figura 3 resume la abundancia de secuencias obtenidas a través del análisis metagenómico :
+Los barcodes son agrupados mediante el algoritmo Opticlust (Schloss et. al., 2017) tomando un parámetro de 97% de similitud entre secuencias para ser consideradas pertenecientes una unidad taxonómica operacional (OTU). Se realizó la asignación taxonómica de las secuencias procesadas usando un algoritmo de clasificación de Bayes ingenuo (Wang, 2007) y se obtuvo la taxonomía consenso para cada OTU. La base de datos para asignación taxonómica está compuesta de las secuencias de la base de datos W2-PR2 (de Vargas, 2015) que fue generada en un estudio metagenómico oceánico de amplio muestreo (descargada de su sitio web el 2 de Mayo de 2017) en la que se implementó la nomenclatura utilizada en la base de datos del Registro Mundial de Especies Marinas: WORMS (WoRMS Editorial Board, 2017). La Figura 3 incluye  el número  de secuencias (contigs) obtenidas en las etapas de X y Y  del análisis bioinformático.
 
-```{r, echo = FALSE, fig.align = "center", fig.cap = "El número de secuencias totales, secuencias de buena calidad, secuencias Alineadas (quimeras removidas)  y secuencias clasificadas a lo largo de las estaciones.", out.width='\\textwidth'}
+```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 3. El número de secuencias totales, secuencias de buena calidad, secuencias Alineadas (quimeras removidas)  y secuencias clasificadas a lo largo de las estaciones.", out.width='\\textwidth', }
 
 ct.dir <- c("/Users/cigom/metagenomics/phyloseq_in/count_table")
 ct.files <- list.files(ct.dir, full.names = TRUE)
-
 
 # read the list of count tables
 count.tbl <- lapply(ct.files, read.csv, sep = "\t")
@@ -86,13 +99,13 @@ df_names <- sapply(df_names, "[", c(3))
 init.contigs <- read.csv("/Users/cigom/metagenomics/phyloseq_in/initial.contigs", sep = "\t" )
 
 plotdat <- cbind(df_names, init.contigs, df)
-colnames(plotdat) <- c("Estacion", "Total", "Buena Calidad", "Alineamiento", "Clasificacion")
+colnames(plotdat) <- c("Estación", "Total", "Buena Calidad", "Alineamiento", "Clasificacion")
 rownames(plotdat) <- df_names
 
-plotdat <- reshape::melt(plotdat)
+#plotdat <- reshape::melt(plotdat)
 
 library(ggpubr)
-ggbarplot(plotdat, x = "Estacion", y = "value",
+ggbarplot(reshape::melt(plotdat), x = "Estación", y = "value",
           fill = "variable",           # change fill color by mpg_level
           color = "variable",            # Set bar border colors to white
           palette = "Paired",            # jco journal color palett. see ?ggpar
@@ -103,19 +116,25 @@ ggbarplot(plotdat, x = "Estacion", y = "value",
           ylab = "Numero de secuencias",
           legend.title = "Secuencias",
           rotate = TRUE,
-          ggtheme = theme_minimal()
-          #position = position_fill(vjust = 0.05)
+          ggtheme = theme_minimal(),
+          position = position_stack(vjust = 0.05)
           )
+# or
+
+# library(googleVis)
+# SteppedArea <- googleVis::gvisSteppedAreaChart(plotdat, xvar="Estación", yvar=c("Total", "Buena Calidad", "Alineamiento", "Clasificacion"), options=list(isStacked=TRUE, vAxis.slantedTextAngle = 90, colors="['#A6CEE3', '#1F78B4', '#B2DF8A', '#33A02C']")
+#                                     )
+# 
+# plot(SteppedArea)
 
 ```
 
-## Estimación de los índices de diversidad y presentación gráfica resultados
+## Estimación de los índices de diversidad y presentación gráfica de resultados.
 
-La estimación de los índices de diversidad y la generación de representaciones gráficas de los resultados del análisis metagenómico, se realizó en R v3.4 (R Core Team, 2017) utilizando diferentes paquetes especializados en análisis de datos ecológicos y gráficos.  
+La estimación de los índices de diversidad y la generación de representaciones gráficas de los resultados del análisis bioinformático, se realizó en R v3.4 (R Core Team, 2017) utilizando diferentes paquetes especializados en análisis de datos ecológicos y gráficos.
+Para obtener una perspectiva biológica de la las comunidades planctónicas se calculó la abundancia relativa de los OTUs colapsados a diferentes niveles taxonómicos. . El siguiente grupo de figuras (Figuras 4 a 7) muestra en mapas de calor la composición de las comunidades de zooplancton por estación al  rango taxonómico indicado (Filo, Clase, Orden y Familia). Se muestran únicamente aquellos taxones cuya abundancia relativa en el set supera el porcentaje señalado. Para una mejor visualización  en la figura correspondiente al rango Familia, los organismos se muestran agrupados por su  Filos y Clase correspondientes, en las columnas del panel derecho (Figura 7).
 
-Para obtener una perspectiva biológica de la las comunidades planctónicas se calculó la abundancia relativa a nivel taxón los OTUs obtenidos por estación. El siguiente grupo de figuras (Figura 4,5,6,7 y 8) muestran en mapas de calor la composición de las comunidades a los diferentes rangos taxonómicos indicados (Filo, Clase, Orden, Familia, Género). Se muestran únicamente aquellos taxones cuya abundancia relativa supera el porcentaje señalado. Para una mejor visualización de los grupos de organismos en la figura correspondiente al rango Género, los organismos se agrupan e indican sus rangos Filos y Clase correspondientes, en las columnas del panel izquierdo (Figura 8). 
-
-Aquellos taxones denominados como 'unclassified' denotan que no es posible asignar un nombre al rango taxonómico actual y en cambio indican el nombre del último rango asignado posible. Esta tendencia se acentúa conforme se baja de rango taxonómico (sentido Reino a Especie) y depende del grupo de organismos evaluado.
+Aquellos taxones denominados como ‘unclassified’ denotan que no fue posible asignar un nombre al rango taxonómico actual y en cambio indican el nombre del último rango asignado posible. Esta tendencia se acentúa conforme se baja de rango taxonómico (sentido Reino a Especie) y depende del grupo de organismos evaluado.
 
 ```{r phyloseq, echo = FALSE}
 library(phyloseq)
@@ -127,7 +146,7 @@ mgroup = list.files(biom.dir, full.names = TRUE, pattern = "cigom.groups")
 # An example of group file could be created as using the files file inputed in mothur
 # cat cigom.files | awk '{print $1}' > groups
 # cat cigom.files | awk '{print $1}' | cut -d"_" -f1,2,3,4,5 | sed 's/_/ /g' > factors
-# paste groups factors | sed '1iID Run Cruice Estacion Barcode SampleType' | tr "\t" " " > cigom.groups
+# paste groups factors | sed '1iID Run Cruice Estación Barcode SampleType' | tr "\t" " " > cigom.groups
 
 # Format sample(group) names
 
@@ -135,9 +154,9 @@ group = read.csv(mgroup[1], header=T, stringsAsFactors = FALSE, sep = "")
 
 rownames(group) <- group[, 1]
 
-colnames(group) <- c("ID", "Corrida", "Crucero", "Estacion", "Marcador", "Tipo")
+colnames(group) <- c("ID", "Corrida", "Crucero", "Estación", "Marcador", "Tipo")
 
-group$Transecto <- substr(group$Estacion, 1, 1)
+group$Transecto <- substr(group$Estación, 1, 1)
 
 mgroup = sample_data(group)
 
@@ -222,13 +241,13 @@ Animalia <- transform_sample_counts(Animalia, function(x) x * 100 )
 
 ```
 
-```{r, fig.align = "center", fig.cap = "Figura 4. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 1% en la comunidad.", out.width='\\textwidth'}
+```{r, fig.align = "center", fig.cap = "Figura 4. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.", out.width='\\textwidth', fig.width=8}
 # Agglomerate taxa of the same Specie type [phylotyping] // demora 1-2 min //
 Phylum <-tax_glom(Animalia, taxrank="Filo")
 
 plot_heatmap(Phylum, 
              #"NMDS", "bray", 
-             sample.label = "Estacion", 
+             sample.label = "Estación", 
              sample.order = "Transecto",
              taxa.label = "Filo",
              na.value = "white", trans = NULL,
@@ -237,12 +256,12 @@ plot_heatmap(Phylum,
 ```
 
 
-```{r, fig.align = "center", fig.cap = "Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 2 % en la comunidad."}
+```{r, fig.align = "center", fig.cap = "Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.", fig.width=8}
 Class <-tax_glom(Animalia, taxrank="Clase")
 
 plot_heatmap(Class, 
              #"NMDS", "bray", 
-             sample.label = "Estacion", 
+             sample.label = "Estación", 
              sample.order = "Transecto",
              taxa.label = "Clase",
              na.value = "white", trans = NULL,
@@ -250,12 +269,12 @@ plot_heatmap(Class,
          labs(fill = "Abundancia\nRelativa (%)")
 ```
 
-```{r , fig.align = "center", fig.cap="Figura 6. Composición de las comunidades a nivel Orden a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5 % en la comunidad.", fig.height = 7, fig.width = 5}
+```{r , fig.align = "center", fig.cap="Figura 6. Composición de las comunidades a nivel Orden a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.", fig.height = 7, fig.width = 8}
 Order <-tax_glom(Animalia, taxrank="Orden")
 
 plot_heatmap(Order, 
              #"NMDS", "bray", 
-             sample.label = "Estacion", 
+             sample.label = "Estación", 
              sample.order = "Transecto",
              taxa.label = "Orden",
              na.value = "white", trans = NULL,
@@ -265,13 +284,13 @@ plot_heatmap(Order,
 ```
 
 
-```{r , fig.align = "center", fig.cap="Figura 7. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5 % en la comunidad. Respectivamente, se indican sus rangos Filos y Clase correspondientes en las columnas del panel izquierdo", fig.width = 5, fig.height = 7}
+```{r , fig.align = "center", fig.cap="Figura 7. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Abundancia relativa de los taxones. Respectivamente, se indican sus rangos Filos y Clase correspondientes en las columnas del panel derecho", fig.width = 8, fig.height = 7}
 
 Family <-tax_glom(Animalia, taxrank="Familia")
 
 h <- plot_heatmap(Family, 
                   #"NMDS", "bray", 
-             sample.label = "Estacion", 
+             sample.label = "Estación", 
              sample.order = "Transecto",
              taxa.label = "Familia",
              na.value = "white", trans = NULL,
@@ -295,17 +314,19 @@ h + facet_grid(Filo+Clase ~ .,
 ```
 
 
-```{r, fig.align = "center", fig.cap = "Figura 8. Composición de las comunidades a nivel Género a lo largo de las estaciones. Abundancia relativa de los taxones que alcanzan más del 5% en la comunidad." }
+```{r, fig.align = "center", fig.cap = "Figura x. Composición de las comunidades a nivel Género a lo largo de las estaciones. Abundancia relativa de los taxones." }
 
 Genus <-tax_glom(Animalia, taxrank="Genero")
 
 h <- plot_heatmap(Genus, 
                   #"NMDS", "bray", 
-             sample.label = "Estacion", 
+             sample.label = "Estación", 
              sample.order = "Transecto",
              taxa.label = "Genero",
              na.value = "white", trans = NULL,
              low = "#FFFFD9", high = "#081D58")
+
+
 
 
 ```
@@ -381,7 +402,9 @@ ggrare2 <- function (physeq_object, step = 10, label = NULL, color = NULL,
 }
 ```
 
-```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 9. Curva de rarefacción que presenta la riqueza de OTUs a lo largo de las estaciones en relación al número de secuencias",  fig.width = 4, fig.height = 4, tidy= TRUE, echo=FALSE, message=FALSE, warning=FALSE}
+Se realizó una curva de rarefacción para evaluar el esfuerzo de secuenciación por estación (Figura 8). Se observo que en la mayoria de las estaciones el numero de OTUs puede incrementar aun más si se dedica un mayor esfuerzo de secuenciación.
+
+```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 8. Curva de rarefacción por muestra. Se presenta el número de OTUs a lo largo de las estaciones en relación al número de secuencias.",  out.width='\\textwidth', fig.width = 7, fig.height = 4}
 # https://github.com/gauravsk/ranacapa/
 # and https://github.com/joey711/phyloseq/issues/143
 
@@ -391,12 +414,12 @@ theme_set(theme_classic())
 rr <- subset_taxa(phyloseq, Reino == "Animalia")
 minsample <- min(sample_sums(rr))
 
-rrplot <- ggrare2(rr, step = 100, label = "Estacion", 
+rrplot <- ggrare2(rr, step = 100, label = "Estación", 
                  color="Transecto", 
                  se = FALSE, plot = FALSE) 
 
 rrplot +
-  xlab("Sequences number") + ylab("OTUs number") + 
+  xlab("Numero de secuencias") + ylab("Numero de OTUs") + 
     theme(text = element_text(size=12),
         panel.background = element_blank(), legend.position = "none") +
   geom_point(size=0.7)
@@ -404,22 +427,23 @@ rrplot +
   # scale_color_manual(values=getPalette(length(unique(group$Transecto))))
 ```
 
+La diversidad alfa se obtuvo a través del cálculo de los índices de Shannon e Inverso de Simpson en cada estación (Figura 9). En ambos índices se observa que la mayoría de las estaciones se encuentra en un rango de diversidad definido pero sobresalen (contienen mayor diversidad) algunas estaciones de los transectos G y H.
 
-
-```{r, fig.align = "center", fig.cap = "Diversidad alpha", fig.width = 7, fig.height = 5}
+```{r, fig.align = "center", fig.cap = "Figura 9. Diversidad alfa por estación. Se muestran los índices de diversidad alfa de Shannon e Inverso de Simpson calculados para la comunidad de zooplancton cada estación del crucero XIXIMI-06.", fig.width = 7, fig.height = 5}
 library(RColorBrewer)
-getPalette = colorRampPalette(brewer.pal(9, "YlOrRd"))
-
+getPalette = colorRampPalette(brewer.pal(9, "Paired"))
+n <-length(unique(sample_data(rr)$Transecto))
 rr <- transform_sample_counts(rr, function(x) 1E6 * x/sum(x))
 
-prichnes <- plot_richness(rr, x="Estacion", color="Estacion", measures=c("Shannon", "InvSimpson"))
+prichnes <- plot_richness(rr, x="Estación", color="Transecto", measures=c("Shannon", "InvSimpson"))
 prichnes$layers <- prichnes$layers[-1]
-prichnes + scale_color_manual(values=getPalette(nsamples(rr))) + 
+prichnes + scale_color_manual(values=getPalette(n)) + 
     geom_point(size=5, alpha=0.5) +
     theme(axis.title.x=element_blank(),
         axis.text.x=element_blank(),
-        axis.ticks.x=element_blank()
-        )
+        axis.ticks.x=element_blank())  +ylab("Diversidad alfa")
+          
+ 
 ```
 
 
@@ -431,20 +455,22 @@ richness <- estimate_richness(pp, measures = c("Observed",
                                    "Chao1", "ACE", 
                                    "Fisher", "Shannon", "InvSimpson"
                                    ))
-rownames(richness) <- group$Estacion
+rownames(richness) <- group$Estación
 # devtools::install_github("haozhu233/kableExtra")
 #library(kableExtra)
 library(dplyr)
-library(pander)
-richness %>% pander()
-   
+#library(pander)
+#richness %>% pander()
+  
+knitr::kable(round(richness, digits = 2), caption = 'A caption')
+ 
   # kable(escape = F, align = "c") %>%
   #  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), full_width = F)
 
 ```
 
 
-La diferencia en composición de la comunidad de zooplancton entre estaciones se evaluó mediante un análisis de coordenadas principales usando una matriz de distancias Jaccard. En la figura 10 se observa que la mayoría de las estaciones forman agrupaciones indicando comunidades similares mientras que son pocas estaciones que se separan, indicando comunidades diferentes al resto del grupo.
+La diferencia en composición de la comunidad de zooplancton entre estaciones se evaluó mediante un análisis de coordenadas principales usando una matriz de distancias Jaccard. En la figura 10 se observa que no hay formacion de grupos definidos de estaciones indicando comunidades similares mientras que son pocas estaciones que se separan, indicando comunidades diferentes al resto del grupo.
 
 ```{r, fig.align = "center", fig.cap = "Figura 10. PCoA. Componentes principales (Distancias Jaccard)."}
 
@@ -453,37 +479,43 @@ iMDS  <- ordinate(rr, "PCoA", distance=iDist)
 
 p <- plot_ordination(rr, iMDS,
                      color="Transecto"
-                     #label="Estacion"
+                     #label="Estación"
                      #shape="Cruice"
                      ) 
 p$layers <- p$layers[-1]
-p + geom_text(aes(label = Estacion, label.size = 10)) + theme(legend.position = "none")
+p + geom_text(aes(label = Estación, label.size = 10)) + theme(legend.position = "none")
 
 ```
 
-```{r, fig.align = "center", fig.cap = "top de filos (abundancia de otus) a lo largo de todas las estaciones. Aquellos que representan almenos 10% dela abundancia total por muestra"}
+```{r, fig.align = "center", fig.cap = "Figura 11. Filos mas abundantes a lo largo de todas las estaciones. Aquellos que representan almenos 10% dela abundancia total por muestra"}
 
 # also try: https://github.com/joey711/phyloseq/issues/494
 library(data.table)
 
-keepTaxa = apply(X = as(otu_table(rr), "matrix") > 0L,
-                 MARGIN = 1, FUN = sum) >= 2L ## Remove OTUs not k greater than k (2L)
-phy = prune_taxa(keepTaxa, rr) # get abundance in %
-phy <- transform_sample_counts(phy, function(x) x/sum(x)) # agglomerate taxa
-glom <- tax_glom(phy, taxrank = 'Filo') # create dataframe from phyloseq object
-dat <- data.table(psmelt(glom)) # convert Filo to a character vector from a factor because R
-dat$Filo <- as.character(dat$Filo) # group dataframe by Filo, calculate median rel. abundance
+# Remove OTUs not 3 greater than 3
+keepTaxa = apply(X = as(otu_table(pp), "matrix") > 2L,
+                 MARGIN = 1, FUN = sum) >= 2L
+phy = prune_taxa(keepTaxa, pp)
+# get abundance in %
+phy <- transform_sample_counts(phy, function(x) x/sum(x))
+# agglomerate taxa
+glom <- tax_glom(phy, taxrank = 'Filo')
+# create dataframe from phyloseq object
+dat <- data.table(psmelt(glom))
+# convert Phylum to a character vector from a factor because R
+dat$Filo <- as.character(dat$Filo)
+# group dataframe by Phylum, calculate median rel. abundance
 dat[, median := median(Abundance, na.rm = TRUE), 
-    by = ""] # Change name to remainder of Filo less than 1%
+    by = "Filo"]
+# Change name to remainder of Phylum less than 1%
 dat[(median <= 0.01), Filo := "Otros"]
-
 # boxplot
-#ggplot(dat[Abundance > 0],
-#       aes(x=Filo,
-#           y=Abundance)) + 
-#  geom_boxplot() + 
-#  coord_flip() +
-#  scale_y_log10()
+ggplot(dat[Abundance > 0],
+      aes(x=Filo,
+          y=Abundance)) +
+ geom_boxplot() +
+ coord_flip() +
+ scale_y_log10()
 ```
 
 
@@ -510,16 +542,13 @@ find.taxa <- function(x,taxa, find, samples){
   return(m)
 }
 
-min.taxa <- find.taxa(phyloseq, "Clase", "min", "Estacion")
-max.taxa <- find.taxa(phyloseq, "Clase", "max", "Estacion")
-# niceplot for small subset 
-# plot_bar(phyloseq, "Family", fill="Phylum", facet_grid=~Estacion) 
-# .. geom_bar(stat="identity") +
-#      scale_fill_brewer(palette="Spectral")
+# min.taxa <- find.taxa(phyloseq, "Clase", "min", c("Estación", "Transecto"))
+# max.taxa <- find.taxa(phyloseq, "Clase", "max", c("Estación", "Transecto"))
+
 
 ```
 
-```{r, fig.align = "center", fig.cap = " Taxones (mas abundantes) a lo largo de todas las estaciones - Nivel Clase"}
+```{r}
 library(RColorBrewer)
 theme_set(theme_classic())
 
@@ -527,44 +556,52 @@ getPalette = colorRampPalette(brewer.pal(8, "RdYlBu"))
 
 library(ggpubr)
 
-gp <- melt(max.taxa)
-colourCount <- length((unique(gp$variable)))
+# gp <- melt(max.taxa)
+# colourCount <- length((unique(gp$variable)))
 
-ggdotchart(gp, x = "variable", y ="Clase",
-   #group = "Phylum", 
-   color = "Clase",
-   palette = getPalette(colourCount),
-   rotate = TRUE,
-   sorting = "descending",
-   ggtheme = theme_bw(),
-   y.text.col = TRUE,
-   dot.size = "value") + 
-  theme(axis.text.x = element_text(angle = 90))
+# min <- melt(min.taxa)
+# max <- melt(max.taxa)
+# min$Abundance <- "min"
+# max$Abundance <- "max"
+# 
+# plot.taxa <- rbind(max, min)
+# colourCount <- length((unique(plot.taxa$variable)))
+# plot.taxa$value <- log2(plot.taxa$value)
+
+# 
+# ggdotchart(gp, x = "Estación", y ="Transecto",
+#    group = "Transecto", 
+#    color = "Clase",
+#    palette = getPalette(colourCount),
+#    rotate = TRUE,
+#    sorting = "descending",
+#    ggtheme = theme_bw(),
+#    y.text.col = TRUE,
+#    dot.size = "value") + 
+#   theme(axis.text.x = element_text(angle = 90)) + 
+#                             labs(size = bquote(~Log[2]~ "Abundancia" ))
 ```
 
 
-```{r, fig.align = "center", fig.cap = "Taxones (menos abundantes) a lo largo de todas las estaciones - Nivel clase"}
+```{r}
 library(RColorBrewer)
 theme_set(theme_classic())
 
 getPalette = colorRampPalette(brewer.pal(8, "RdYlBu"))
 
-gp <- melt(min.taxa)
-colourCount <- length((unique(gp$variable)))
+# gp <- melt(min.taxa)
+# colourCount <- length((unique(gp$variable)))
+# gp$value <- log2(gp$value)
 
-ggdotchart(gp, x = "variable", y ="Clase",
-   #group = "Phylum", 
-   color = "Clase",
-   palette = getPalette(colourCount),
-   rotate = TRUE,
-   sorting = "descending",
-   ggtheme = theme_bw(),
-   y.text.col = TRUE,
-   dot.size = "value") + 
-  theme(axis.text.x = element_text(angle = 90))
 ```
 
 ## Visualizacion de hexanauplia
+
+Arthropoda es el filo más abundante (figura 4 y 11) y consecutivamente Haxanauplia es la Clase más abundante (Figura 5). Para visualizar este grupo de forma independiente se generó un grafico de abundancia relativa a nivel familia (100% es el total de OTUs en la Clase Hexanauplia) [Figura 13]. Se observa la prevalencia de la familia Calanidae en la mayoría de las estaciones con excepción del transecto H. En el grupo de estaciones Y ubicadas en el canal de Yucatán, se observa la mayor proporción de OTUs sin asignación. 
+
+En el dendograma de la Figura 14 se observa que las secuencias de los OTUs asignados a las diferentes familas de la Clase Hexanauplia no forman grupos definidos (no son monofiléticos).
+
+Para la construccion del arbol, se utilizaron las secuencias representativas de cada OTU (ie. las secuencias de mayor peso dentro del cluster de otus). A partir de las secuencias alineadas, se reconstruyo el arbol filogenetico utiliando el metodo relajado Neihbor-Joining (Evans, J. et al 2006).
 
 ```{r, echo = FALSE}
 library(phyloseq)
@@ -583,11 +620,11 @@ colourCount = length(unique(tax_table(Hx.cls)[,5]))
 getPalette = colorRampPalette(brewer.pal(9, "Spectral"))
 ```
 
-```{r, fig.align = "center", fig.cap="Hexanauplia subset through the samples (Family label in the xlab)", fig.width = 7}
+```{r, fig.align = "center", fig.cap="Figura 12. ", fig.width = 7}
 library(RColorBrewer)
 theme_set( theme_classic())
 
-plot_bar(Hx.cls, "Estacion", fill="Familia") +
+plot_bar(Hx.cls, "Estación", fill="Familia") +
   geom_bar(stat="identity") +
     scale_fill_manual(values = getPalette(colourCount)) +
    ylab("Abundancia Relativa (%)") +  coord_flip() +
@@ -596,9 +633,9 @@ plot_bar(Hx.cls, "Estacion", fill="Familia") +
 ```
 
 
-```{r, fig.align = "center", fig.cap="Hexanauplia tree (Family labeled)",  fig.width = 7}
+```{r, fig.align = "center", fig.cap="Figura 13. Arbol filogenetico de la clase Hexanauplia (Nivel Familia - coloreado)",  fig.width = 7}
 
-# plot_tree(Hx.cls, shape="Order", color="Estacion", ladderize="left") 
+# plot_tree(Hx.cls, shape="Order", color="Estación", ladderize="left") 
 library(dplyr)
 Hx.df <- as_tibble(phyloseq::psmelt(Hx.cls))
 colnames(Hx.df)[1] <- "label"
@@ -651,7 +688,10 @@ ggtree(tre, branch.length='none', layout='circular', aes(color=Familia), na.rm =
 
 5 De Vargas, C., et al. (2015) Eukaryotic plankton diversity in the sunlit ocean. Science 348.6237 1261605
 
+6 Evans, J., Sheneman, L., Foster, J.A., (2006) Relaxed Neighbor-Joining: A Fast Distance-Based Phylogenetic Tree Construction Method, Journal of Molecular Evolution, 62:785-792. 
+
 
 ```{r}
 # INCLUIR PROPUESTA DE tidyamplicons EN devtools::install_github("SWittouck/tidaymplicons", build_vignettes = TRUE)
 ```
+
