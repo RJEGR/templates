@@ -18,7 +18,13 @@ TAX = tax_table(taxmat)
 physeq = phyloseq(OTU, TAX)
 print(physeq)
 
+# order
+otus <- as.data.frame(otus)
+otus$total <- rowSums(otus)
+otus <- otus[order(otus$total, decreasing = TRUE), ]
 
+otus <- rbind(otus, colSums(otus))
+              
 # suma de otus dentro de UNA de las muestras
 colSums(otus)
 # suma de UN otu a lo largo de las muestras

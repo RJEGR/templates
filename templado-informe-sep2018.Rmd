@@ -23,6 +23,7 @@ knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300
 qc.dir <- c("/Users/cigom/metagenomics/phyloseq_in/fastqc/")
 qc.files <- list.files(qc.dir, full.names = TRUE)
 nsamp <- as.numeric(length(qc.files)/2)
+cruice <-
 ```
 
 Los datos provienen de muestras obtenidas en `r nsamp` estaciones que cubrió el crucero exploratorio XIXIMI-06. Para cada muestra se generaron amplicones de la región v9 del gen ribosomal 18S. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 150 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del CICESE-CIGOM). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
@@ -38,7 +39,7 @@ El análisis metagenómico se llevó a cabo en el cluster de cómputo OMICA-CICE
 
 ### Pre-procesamiento y alineamiento de lecturas
 
-Durante el pre-procesamiento se demultiplexa y eliminan secuencias ambiguas y de puntaje de calidad phred menor a 20. Las Figuras 1 y 2  resumen las métricas de calidad de las bibliotecas. En la Figura 1 se muestra el número de lecturas (Forward, F y Reverse, R) obtenido en relación al promedio de su calidad. Se puede observar que la mayoría de las lecturas tienen buena calidad (>20). 
+Durante el pre-procesamiento se demultiplexa y eliminan secuencias ambiguas y de puntaje de calidad phred menor a 20. Las Figuras 1 y 2 resumen las métricas de calidad de las bibliotecas. En la Figura 1 se muestra el número de lecturas (Forward, F y Reverse, R) obtenido en relación al promedio de su calidad. Se puede observar que la mayoría de las lecturas tienen buena calidad (>20). 
 
 En la Figura 2 se muestra el promedio de la calidad de los nucleótidos, en relación a su posición en la lectura (Forward, F y Reverse, R). En este gráfico se observa una buena calidad (> 20) por posición a lo largo de toda la lectura (~150 nt). 
 
@@ -85,48 +86,74 @@ Los barcodes son agrupados mediante el algoritmo Opticlust (Schloss et. al., 201
 ```{r, echo = FALSE, fig.align = "center", fig.cap = "Figura 3. El número de secuencias totales, secuencias de buena calidad, secuencias Alineadas (quimeras removidas)  y secuencias clasificadas a lo largo de las estaciones.", out.width='\\textwidth', }
 
 ct.dir <- c("/Users/cigom/metagenomics/phyloseq_in/count_table")
-ct.files <- list.files(ct.dir, full.names = TRUE)
+ct.files <- list.files(ct.dir, full.names = FALSE)
 
 # read the list of count tables
-count.tbl <- lapply(ct.files, read.csv, sep = "\t")
+
+count.tbl <- lapply(paste0(ct.dir,"/",ct.files), read.table, sep = "\t", stringsAsFactors=F, header=T)
 
 # ..then sum the columns per sample
-list <- list()
-for (i in 1:length(ct.files)) {
-    list[[i]] <- colSums(count.tbl[[i]][-c(1:2)])
-}
 
-# tidy the object list and remove duplicate values:
-df <- do.call(rbind, list)
-df <- t(df[!duplicated(df), ])
+mydf <- sapply(count.tbl, function(x) colSums(x[,-c(1:2)]), simplify = TRUE) #, USE.NAMES = TRUE)
+mydf <- data.frame(mydf)
+
+# Remove duplicate values in each step:
+
+# mydf[,c("X3", "X4", "X5")] <- NULL # explicit the columns to remove
+mydf <- mydf[!duplicated(t(mydf),)] #  or in implicit remove duplicates as above
 
 
-df_names <- strsplit(rownames(df), "_")
-df_names <- sapply(df_names, "[", c(3))
+library(stringr)
+mystations <- rownames(mydf) %>% 
+  str_replace(pattern = "([:alnum:]+_){2}", replacement = "") %>%
+  str_replace(pattern = "(_[:alnum:]+.*)", replacement = "")
+
+# mystations <- strsplit(rownames(df), "_")
+# mystations <- sapply(mystations, "[", c(3))
 
 init.contigs <- read.csv("/Users/cigom/metagenomics/phyloseq_in/initial.contigs", sep = "\t" )
 
-plotdat <- cbind(df_names, init.contigs, df)
-colnames(plotdat) <- c("Estación", "Total", "Buena Calidad", "Alineamiento", "Clasificacion")
-rownames(plotdat) <- df_names
+plotdat <- cbind(mystations, init.contigs, mydf)
 
-#plotdat <- reshape::melt(plotdat)
+names(plotdat) <- c("Estacion", "Total", "Buena Calidad", "Alineamiento", "Barcodes")
+rownames(plotdat) <- NULL
 
-library(ggpubr)
-ggbarplot(reshape::melt(plotdat), x = "Estación", y = "value",
-          fill = "variable",           # change fill color by mpg_level
-          color = "variable",            # Set bar border colors to white
-          palette = "Paired",            # jco journal color palett. see ?ggpar
-          x.text.angle = 90,          # Rotate vertically x axis texts
-          merge = TRUE,
-          width = 0.7,
-          yscale = "none",
-          ylab = "Numero de secuencias",
-          legend.title = "Secuencias",
-          rotate = TRUE,
-          ggtheme = theme_minimal(),
-          position = position_stack(vjust = 0.05)
-          )
+# melt files as follow
+
+plotdat_m <- reshape2::melt(plotdat, id.vars = "Estacion", variable.name = "Etapa", value.name = "Secuencias")
+
+plotdat_m$Etapa <- factor(plotdat_m$Etapa, levels = c("Total", "Buena Calidad", "Alineamiento", "Barcodes"), ordered = T)
+
+seqs_barplot <- ggplot(plotdat_m, aes(x=Estacion, y=Secuencias, fill=Etapa)) + 
+  geom_col(position="identity") +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_fill_brewer(palette ="Paired" ) +
+  labs(x="Estación") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90))
+  #coord_flip() 
+# scale_y_continuous(labels = scales::percent)
+
+print(seqs_barplot)
+
+# ggsave(seqs_barplot, filename = "figura3.png", dpi = 100) # or save it
+
+
+# library(ggpubr)
+# ggbarplot(reshape::melt(plotdat), x = "Estación", y = "value",
+#           fill = "variable",           # change fill color by mpg_level
+#           color = "variable",            # Set bar border colors to white
+#           palette = "Paired",            # jco journal color palett. see ?ggpar
+#           x.text.angle = 90,          # Rotate vertically x axis texts
+#           merge = TRUE,
+#           width = 0.7,
+#           yscale = "none",
+#           ylab = "Numero de secuencias",
+#           legend.title = "Secuencias",
+#           rotate = TRUE,
+#           ggtheme = theme_minimal(),
+#           position = position_identity()
+#           )
 # or
 
 # library(googleVis)
@@ -147,8 +174,7 @@ Aquellos taxones denominados como ‘unclassified’ denotan que no fue posible 
 ```{r phyloseq, echo = FALSE}
 library(phyloseq)
 # Path files for processing within phyloseq
-#biom.dir <- c("/Users/cigom/metagenomics/example_samples/phyloseq_in")
-biom.dir <- c("/Users/cigom/metagenomics/phyloseq_in/")
+biom.dir <- c("/Users/cigom/metagenomics/example_samples/phyloseq_in")
 mbiom = list.files(biom.dir, full.names = TRUE, pattern = "biom")
 mgroup = list.files(biom.dir, full.names = TRUE, pattern = "cigom.groups")
 # An example of group file could be created as using the files file inputed in mothur
@@ -173,7 +199,8 @@ mgroup = sample_data(group)
 
 biom <- import_biom(mbiom[1])
 # and include sampledata
-if (identical(colnames(otu_table(biom)), rownames(mgroup))) { obj <- merge_phyloseq(biom, mgroup) }
+if (identical(colnames(otu_table(biom)), rownames(mgroup))) { obj <- merge_phyloseq(biom, mgroup) 
+    } else {obj = biom} 
 
 
 # Finally prepare a tre based on the representative-OTU-clusters sequence aligned in the classification step
@@ -231,7 +258,7 @@ clean.phyloseq = prune_taxa(keepTaxa, phyloseq)
 
 ```{r}
 save <- psmelt(clean.phyloseq)
-write.csv(save[,-c(4,18)], file = "XIXIM06_taxones_identificados")
+write.csv(save[,-c(4,18)], file = "taxones_identificados")
 ```
 
 
@@ -272,7 +299,6 @@ plot_heatmap(Phylum,
 ```{r, fig.align = "center", fig.cap = "Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.", fig.width=8}
 Class <-tax_glom(Animalia, taxrank="Clase")
 
-plot_heatmap(Class, 
              #"NMDS", "bray", 
              sample.label = "Estación", 
              sample.order = "Transecto",
