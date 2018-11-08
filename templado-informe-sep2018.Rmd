@@ -11,8 +11,8 @@ output:
 
 ```{r setup, include=FALSE}
 # Setting global option in all the chunks-code
-knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300 
-                      #fig.path='~/metagenomics/phyloseq_in/figures/'
+knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300, 
+                      fig.path='~/metagenomics/phyloseq_in_X04/figures/'
                       # fig.width=12, fig.height=8 #
                       )
 ```
@@ -23,7 +23,7 @@ knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300
 qc.dir <- c("/Users/cigom/metagenomics/phyloseq_in/fastqc/")
 qc.files <- list.files(qc.dir, full.names = TRUE)
 nsamp <- as.numeric(length(qc.files)/2)
-cruice <-
+cruice <- ""
 ```
 
 Los datos provienen de muestras obtenidas en `r nsamp` estaciones que cubrió el crucero exploratorio XIXIMI-06. Para cada muestra se generaron amplicones de la región v9 del gen ribosomal 18S. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 150 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del CICESE-CIGOM). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
@@ -174,17 +174,24 @@ Aquellos taxones denominados como ‘unclassified’ denotan que no fue posible 
 ```{r phyloseq, echo = FALSE}
 library(phyloseq)
 # Path files for processing within phyloseq
-biom.dir <- c("/Users/cigom/metagenomics/example_samples/phyloseq_in")
+
+biom.dir <- c("/Users/cigom/metagenomics/phyloseq_in_X04")
+
+setwd(biom.dir)
+# An example of group file could be created as using the files file inputed in mothur
+system("cat cigom.files | awk '{print $1}' > groups")
+system("cat cigom.files | awk '{print $1}' | cut -d'_' -f1,2,3,4,5 | sed 's/_/ /g' > factors")
+system("paste groups factors | tr '\t' ' ' > cigom.groups")
+# | sed '1iID Run Cruice Estación Barcode SampleType' |
+
 mbiom = list.files(biom.dir, full.names = TRUE, pattern = "biom")
 mgroup = list.files(biom.dir, full.names = TRUE, pattern = "cigom.groups")
-# An example of group file could be created as using the files file inputed in mothur
-# cat cigom.files | awk '{print $1}' > groups
-# cat cigom.files | awk '{print $1}' | cut -d"_" -f1,2,3,4,5 | sed 's/_/ /g' > factors
-# paste groups factors | sed '1iID Run Cruice Estación Barcode SampleType' | tr "\t" " " > cigom.groups
+
 
 # Format sample(group) names
+group = read.csv(mgroup[1], header=F, stringsAsFactors = FALSE, sep = "")
 
-group = read.csv(mgroup[1], header=T, stringsAsFactors = FALSE, sep = "")
+# group <- data.frame(ID=rownames(group), group)
 
 rownames(group) <- group[, 1]
 
@@ -299,6 +306,7 @@ plot_heatmap(Phylum,
 ```{r, fig.align = "center", fig.cap = "Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.", fig.width=8}
 Class <-tax_glom(Animalia, taxrank="Clase")
 
+plot_heatmap(Class,
              #"NMDS", "bray", 
              sample.label = "Estación", 
              sample.order = "Transecto",
@@ -538,19 +546,19 @@ phy = prune_taxa(keepTaxa, pp)
 # get abundance in %
 phy <- transform_sample_counts(phy, function(x) x/sum(x))
 # agglomerate taxa
-glom <- tax_glom(phy, taxrank = 'Filo')
+glom <- tax_glom(phy, taxrank = 'Familia')
 # create dataframe from phyloseq object
 dat <- data.table(psmelt(glom))
 # convert Phylum to a character vector from a factor because R
 dat$Filo <- as.character(dat$Filo)
 # group dataframe by Phylum, calculate median rel. abundance
 dat[, median := median(Abundance, na.rm = TRUE), 
-    by = "Filo"]
+    by = "Familia"]
 # Change name to remainder of Phylum less than 1%
-dat[(median <= 0.01), Filo := "Otros"]
+dat[(median <= 0.01), Familia := "Otros"]
 # boxplot
 ggplot(dat[Abundance > 0],
-      aes(x=Filo,
+      aes(x=Familia,
           y=Abundance)) +
  geom_boxplot() +
  coord_flip() +
@@ -582,9 +590,7 @@ find.taxa <- function(x,taxa, find, samples){
 }
 
 # min.taxa <- find.taxa(phyloseq, "Clase", "min", c("Estación", "Transecto"))
-# max.taxa <- find.taxa(phyloseq, "Clase", "max", c("Estación", "Transecto"))
-
-
+max.taxa <- find.taxa(phyloseq, "Genero", "max", c("Estación", "Transecto"))
 ```
 
 ```{r}
@@ -602,22 +608,22 @@ library(ggpubr)
 # max <- melt(max.taxa)
 # min$Abundance <- "min"
 # max$Abundance <- "max"
-# 
+
 # plot.taxa <- rbind(max, min)
 # colourCount <- length((unique(plot.taxa$variable)))
 # plot.taxa$value <- log2(plot.taxa$value)
 
 # 
 # ggdotchart(gp, x = "Estación", y ="Transecto",
-#    group = "Transecto", 
+#    group = "Transecto",
 #    color = "Clase",
 #    palette = getPalette(colourCount),
 #    rotate = TRUE,
 #    sorting = "descending",
 #    ggtheme = theme_bw(),
 #    y.text.col = TRUE,
-#    dot.size = "value") + 
-#   theme(axis.text.x = element_text(angle = 90)) + 
+#    dot.size = "value") +
+#   theme(axis.text.x = element_text(angle = 90)) +
 #                             labs(size = bquote(~Log[2]~ "Abundancia" ))
 ```
 
@@ -719,8 +725,8 @@ Tambien si contamos con coordenadas y datos abioticos podemos incluir el siguien
 ```{r}
 library(ggrepel)
 library(ggplot2)
-
-world <- map_data("world", region = "Mexico") 
+library(tidyverse)
+world <- ggplot2::map_data("world", region = "Mexico") 
 
 gg <- ggplot() + 
   geom_polygon(data = world, aes(x=long, y = lat, group = group), fill = NA, color = "black") + 
@@ -729,18 +735,60 @@ gg <- ggplot() +
 # y cargamos el dataframe de coordenadas, y lo asociamos a alguna matriz de presencia/ausencia de los datos del flujo de mothur-phyloseq. Por ej.
 
 coors <- # las cordenadas las puede meter uno desde el sample file y listo. asi evitos errores de compatibilidad!
+coors <- read.csv("~/Downloads/metadata_xiximi04.csv", header=TRUE, stringsAsFactors = FALSE)
+
+richness$Station <- rownames(richness)
+names(max.taxa)[5] <- "Station"
+
+richness %>%
+    as.tibble() %>%
+    group_by(Station) %>%
+    inner_join(coors, by = "Station") %>%
+    inner_join(max.taxa, by = "Station") %>%
+    select(Station, Transecto, Longitude, Latitude, Depth, 
+                    Observed, Shannon, InvSimpson, Familia) -> map_plot
+
+# colour
+library(RColorBrewer)
+getPalette = colorRampPalette(brewer.pal(8, "RdYlBu"))
+colourCount <- length((unique(map_plot$Familia)))
+
+
 
 # y ploteamos
 gg + 
-  geom_point(data = coors, aes(Longitude, Latitude), 
-             color = ifelse(coors$Presence == "True",'red','black'), size=1.5, alpha = .8) + 
-  ggtitle("") +
-  geom_text_repel(data = subset(coors, Presence=="True"), 
+  geom_point(data = map_plot, aes(Longitude, Latitude, color=InvSimpson, size = Observed)) +  
+  scale_color_continuous(low = "blue", high="orange" ) +
+  geom_text_repel(data = rich_cor,
                   aes(Longitude, Latitude, label=Station),
                   segment.color = "grey50"
                   ) + 
   theme(text = element_text(size=12),
-        panel.background = element_blank(), legend.position = "none") 
+        panel.background = element_blank(), legend.position = "right") 
+# and also
+gg + 
+  geom_point(data = map_plot, aes(Longitude, Latitude, color=Familia)) +  
+  scale_color_manual(values = c(getPalette(colourCount))) + # if color by Family use it
+             #color = ifelse(coors$Presence == "True",'red','black'), size=1.5, alpha = .8) + 
+  #ggtitle("") +
+  geom_text_repel(data = rich_cor,  # subset(coors, Presence=="True"), 
+                  aes(Longitude, Latitude, label=Station),
+                  segment.color = "grey50"
+                  ) + 
+  theme(text = element_text(size=12),
+        panel.background = element_blank(), legend.position = "right") 
+
+#
+
+ggplot(map_plot, aes(Shannon, InvSimpson)) + 
+  geom_point(aes(color=Depth), alpha=0.7, size=7, position='jitter') + # stat_smooth() +
+  scale_color_continuous(low="blue", high="orange") +
+  geom_text(aes(label=Station), hjust=1, nudge_x=0.05, nudge_y=0.5)
+
+ggplot(map_plot, aes(Estacion, log10(Abundancia), group=Estacion) ) +
+  geom_line() +
+  geom_point(aes(color=Especie)) +
+  coord_flip()
 ```
 ## Citas
 
