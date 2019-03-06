@@ -1,0 +1,1150 @@
+---
+title: Análisis bioinformático de la diversidad de zooplancton en la zona epipelágica
+  del Golfo de México usando el marcador COI
+author: "Grupo Bioinformática"
+date: "Informe `r format(Sys.Date())`"
+output:
+  # pdf_document: default
+  # word_document: default
+  word_document:
+#    reference_docx: templado-informe-Jan2019.docx
+---
+
+<!-- COMENTARIOS del Flujo del analisis -->
+<!-- Pre-procesamiento y alineamiento de secuencias. Figura 1 a 5 -->
+<!-- - Identificación, abundancia y clasificación taxonómica de amplicones. Figura 6 a 10 -->
+<!-- Subset de datos: -->
+<!-- phyloseq = Todos los datos -->
+<!-- physeq =  Subset de datos (por crucero) -->
+<!-- clean.obj = Retener amplicones presentes en al menos dos muestras -->
+<!-- physeq2 = transformacion de datos del objeto physeq y retener amplicones con variación mayor  a 1e-5 -->
+<!-- otra opción (no implementada) es la abundancia Estandarizada a la media de las lecturas secuenciadas. -->
+
+<!-- - Estimación de los índices de diversidad y presentación gráfica de resultados. Figura 11 a 13 y tabla 1. -->
+<!-- - Cribado de Peces (Actinoperigy). Figura 14. y Figura 15.  -->
+
+
+```{r setup, include=FALSE}
+# Setting global option in all the chunks-code
+knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300,
+                      fig.path='~/metagenomics/COI/run012/figures_G03',
+                      fig.width=12, fig.height=8
+                      )
+
+## Clean workspace
+rm(list=ls()); 
+
+```
+
+## Generalidades del análisis
+
+```{r quality}
+set <- 'G03'
+path <- c("~/metagenomics/COI/run012")
+qc.dir <- paste0(path, "/quality")
+qc.files <- list.files(qc.dir, full.names = TRUE, pattern = set)
+nsamp <- as.numeric(length(qc.files)/2)
+
+
+
+```
+
+```{r phyloseq.obj , echo = FALSE}
+library(phyloseq)
+
+# Path files for processing within phyloseq
+ctb.file <- list.files(path, pattern = "run012_relax_ASVs_count.table", full.names = TRUE)
+seqtab.nochim <- read.table(ctb.file)
+# load(RData.file) # instead of load RData, only read the count_table
+
+# setwd(biom.dir)
+
+samples.out <- colnames(seqtab.nochim)
+cruice <- sapply(strsplit(samples.out, "\\."), `[`, 1)
+subject <- sapply(strsplit(samples.out, "\\."), `[`, 2)
+transect <- substr(subject,1,1)
+
+type <- sapply(strsplit(samples.out, "\\."), `[`, 3)
+samples <- data.frame(Crucero=cruice, Estación=subject, Transecto=transect, Tipo=type)
+
+rownames(samples) <- samples.out
+
+
+# Construct the phyloseq object
+# Curate taxonomy
+tax.dir <- paste0(path, "/ASSIGNATION/asv_analisis")
+tax.file <- list.files(tax.dir, pattern = "run012_relax_ASVs_midori_unique_DB_0.wang.wm.taxonomy", full.names = TRUE)
+taxa1 <- read.csv(tax.file, header=FALSE, sep="\t", stringsAsFactors=FALSE)
+
+Ranks <- c("Reino", "Filo", "Clase", "Orden", "Familia", "Genero", "Especie") # midori levels
+
+tax <- strsplit(taxa1[,2], ";")
+tax <- sapply(tax, "[", c(1:7)) # midori levels
+tax <- as.data.frame(t(tax))
+
+taxa <- as.data.frame(apply(tax, 2, 
+    function(x) gsub("\\(.*$", "",  x, perl=TRUE)),
+     stringsAsFactors = F)
+
+# taxa <- taxa[,-c(1)] # For remove midori `root` Rank
+colnames(taxa) <- Ranks 
+taxa <- apply(taxa, 2, as.character)
+rownames(taxa) <- taxa1[,1]
+head(taxa)
+
+# # #
+# We now construct a phyloseq object directly from the dada2 outputs.
+# # #
+
+phyloseq <- phyloseq(otu_table(t(seqtab.nochim), taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxa))
+
+
+# for(i in ncol(tax_table(phyloseq)):1) {
+#     # it will replace 'unknown_unclassified' terms for 'Unknown' term
+#     tax_table(phyloseq)[,i] <- sub("unknown", "Unknown", tax_table(phyloseq)[,i])
+#     tax_table(phyloseq)[,i] <- sub("unknown.*", "Unknown", tax_table(phyloseq)[,i])
+# #   Sub taxa with *nclassified with Undetermined term
+#     tax_table(phyloseq)[,i] <- sub(".*nclassified.*", 
+#     "Undetermined", tax_table(phyloseq)[,i], perl=TRUE)
+# #   Instead of Undetermined classified , use NA
+#     tax_table(phyloseq)[,i][grep("Undetermined|Unknown|NA",
+#                         tax_table(phyloseq)[,i], perl=TRUE)] <- NA
+# }
+
+```
+
+
+
+```{r clean.obj}
+# preprocessing count-matrix
+
+# head(as(otu_table(phyloseq), "matrix")[,26]) # compare it ...
+# head(as(otu_table(phyloseq), "matrix")[,26] > 2)  # with this .. then:
+# length(apply(as(otu_table(phyloseq), "matrix") > 2, MARGIN = 1, sum))
+
+physeq <- subset_samples(phyloseq, Crucero == set) # Subset_samples by cruice
+physeq <- prune_taxa(taxa_sums(physeq) > 0, physeq) # # Removing any taxa of abundance of zero
+
+keepTaxa = apply(X = as(otu_table(physeq), "matrix") > 0, # Removing any abundance of zero
+                 MARGIN = 2, FUN = sum) > 2 # Remove ASVs not k greater than k (2L) 
+
+# table(keepTaxa)
+
+clean.obj = prune_taxa(keepTaxa, physeq)
+```
+
+```{r GOMECC 03, eval = TRUE, echo = FALSE }
+samples.G03 <- sample_data(physeq)
+samples.G03$Tipo <-  sub('.*(?=.$)', '', samples.G03$Estación, perl=T)
+samples.G03[samples.G03$Tipo == 'H']
+samples.G03[samples.G03$Tipo == 'H','Tipo'] <- 'Huevos'
+samples.G03[samples.G03$Tipo == 'L','Tipo'] <- 'Larvas'
+
+
+# etiquetar familias predominantes para fines de pesca.
+# colorear curvas de rarefacccion por huevos o larva.
+# Separar alfa diversidad por Huevos y Larvas.
+
+# physeq3 <- merge_phyloseq(physeq, samples.G03)
+
+
+physeq <- phyloseq(otu_table(physeq, taxa_are_rows=FALSE), 
+               sample_data(samples.G03), 
+               tax_table(taxa))
+
+clean.obj = prune_taxa(keepTaxa, physeq)
+```
+
+Los datos provienen de muestras obtenidas en `r nsamp` estaciones que cubrió el crucero exploratorio `r set`. Para cada muestra se generaron amplicones COI. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 300 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del CICESE-CIGOM). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
+
+El análisis metagenómico se llevó a cabo en el cluster de cómputo OMICA-CICESE mediante el programa DADA2 versión 1.8. La tubería del análisis fue adaptada de la sugerida por Benjamin Callahan et. al. (2016).
+
+El resumen del análisis se divide en tres etapas principales: 
+
+1. Pre-procesamiento y alineamiento de secuencias.
+2. Clasificación taxonómica y abundancia relativa.
+3. Estimación de los índices de diversidad y presentación gráfica de resultados.
+4. Cribado de Peces ( _Actinoperigy_ )
+
+## Indice de figuras
+
+* Figura 1. Promedio del puntaje de calidad Phred a lo largo de las lecturas de las bibliotecas. Bibliotecas Forward (F) y Reverse (R)
+* Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (F) y Reverse (R)
+* Figura 3. Número de secuencias a lo largo del procesamiento
+* Figura 4. Panel del tamaño del empalme y amplicon
+* Figura 5. Presencia de taxones en el crucero `r set` con varianza mayor a  1e-5, el filo Artropoda es removido.
+* Figura 6. Composición de la comunidad a nivel Filo (heatmap). Se presentan los taxones con varianza mayor a  1e-5
+* Figura 7. Composición de la comunidad a nivel Clase (heatmap). Se presentan los taxones con varianza mayor a  1e-5
+* Figura 8. Composición de la comunidad a nivel Orden (heatmap). Se presentan los taxones con varianza mayor a  1e-5
+* Figura 9.  Composición de las comunidades a nivel Familia a lo largo de las estaciones. Se presentan los taxones con varianza mayor a  1e-5; respectivamente, se indican el nivel de Filos y Clase en las columnas del panel derecho
+* Figura 10. Géneros más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra.
+* Figura 11. Curva de rarefacción por muestra. Se presenta el número de ASVs a lo largo de las estaciones en relación al número de secuencias.
+* Figura 12. Diversidad alfa por estación. Se muestran los índices de diversidad alfa de Shannon e Inverso de Simpson calculados para la comunidad de zooplancton cada estación.
+* Figura 13. PCoA. Componentes principales (Distancias Jaccard).
+* Figura 14. Taxones con varianza mayor a 1e-5 asignados a la Clase de _Actinoperigy_. 
+* Figura 15. Las secuencias de _Actinoperigy_ fueron alineadas y la filogenia construída por el método Neighbor Joining ajustado con el modelo GTR+G+I. La paleta de colores indica la asociación de los taxones a nivel Familia y la etiqueta de los géneros
+* Tabla 1. Índices de diversidad.
+
+## Pre-procesamiento y alineamiento de secuencias.
+El pre-procesamiento incluye el escrutinio de lecturas que no cumplen con los parámetros:
+
+Respectivamente, los tamaños 170 y 230 bases de longitud como el valor mínimo para recortar las lecturas de _Forward_ (F) y _Reverse_ (R). El puntaje de calidad Phred mayor o igual a 15 en promedio. Un umbral de filtrado de calidad para eliminar lecturas con 2 bases erróneamente asignadas en ambas direcciones de las lecturas (F y R). Además, se descartan las lecturas empalmadas que tengan un tamaño menor a 120 bases de longitud y se elimina cualquier lectura que tenga identidad con el genoma del bacteriofago PhiX.
+
+En la Figura 1 y 2 se muestra la distribución y el promedio de la calidad de los nucleótidos, respectivamente, en relación a su posición en la lectura. En este gráfico se observa una buena calidad (≥ 15) por posición a lo largo de toda la lectura. Las lecturas R son significativamente de menor calidad, especialmente al final de la lectura, lo cual es común en secuenciaciones con equipo Illumina.
+
+```{r Figura 1 Calidad 1, fig.align = "center", fig.cap = "Figura 1. Promedio del puntaje de calidad Phred a lo largo de las lecturas de las bibliotecas. Bibliotecas Forward (F) y Reverse (R)."}
+
+library("fastqcr")
+library("ggplot2")
+# First processes the quality screening by: fastqc *.fastq.gz -o fastqc/
+#qc.dir <- c("/Users/cigom/metagenomics/example_samples/fastqc")
+# qc.dir <- c("/Users/cigom/metagenomics/phyloseq_in/fastqc/")
+# qc.files <- list.files(qc.dir, full.names = TRUE)
+
+sample_names <- strsplit(dir(qc.dir, pattern = set), "_")
+sample_names <- sapply(sample_names, "[", c(1,4))
+sample_names <- as.data.frame(t(sample_names))
+colnames(sample_names) <- c("Id","End")
+
+sample_names$End <- as.character(sample_names$End)
+sample_names$End[sample_names$End == "R1"] <- "F"
+sample_names$End[sample_names$End == "R2"] <- "R"
+
+qc <- qc_read_collection(qc.files, sample_names = sample_names$End, modules = c("Per sequence quality scores", "Per base sequence quality"))
+qc_plot_collection(qc, modules = "Per sequence quality scores") +   theme_classic() + geom_line(size=1) + theme(plot.title = element_blank(), plot.subtitle = element_blank()) + ylab("Secuencias") + xlab("Calidad media de secuencia (Puntaje Phred)") + labs(color = "Biblioteca")
+
+```
+
+```{r Figura 2 Calidad 2, fig.align = "center", fig.cap = "Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (F) y Reverse (R)."}
+
+qc_plot_collection(qc, modules = "Per base sequence quality") + geom_line(size=10) + theme_classic() + theme(plot.title = element_blank(), plot.subtitle = element_blank()) + ylab("Mediana de las puntuaciones de calidad") + xlab("Posición (pb)") + labs(color = "Biblioteca")
+
+```
+
+
+La Figura 3 muestra un resumen de la cantidad de secuencias por muestra a través de las diferentes etapas del procesamiento de las lecturas. Se denomina 'amplicon' a las secuencias resultantes. Cada amplicon representa una secuencia biológica.
+
+El algoritmo de DADA2 reemplaza la selección de unidades operacionales taxonómicas (agrupamiento de similitud de secuencias) por variantes de las secuencias de amplicones (ASV, por su siglas en inglés). La Figura 3 muestra un resumen de las lecturas por muestra a través de las diferentes etapas del flujo de trabajo. Se denomina amplicón ( _ASVs_) a las secuencias empalmadas (no quimericas) que representan una secuencia con variación biológica. Un total de `r ntaxa(physeq)` amplicones fueron obtenidos para el crucero `r set`. Se consideró el tamaño del empalme como una variable de astringencia durante la generación de amplicones. La figura 4 muestra dos distribuciones, del tamaño del empalme y tamaño del amplicón (ASV) generado.
+
+```{r Figura 3 tracking, echo = FALSE, fig.align = "center", fig.cap = "Figura 3. El número de lecturas totales, secuencias filtradas, secuencias empalmadas  y secuencias retenidas (quimeras removidas) a lo largo del procesamiento.", out.width='\\textwidth'}
+
+track.dir <- paste0(path, "/run12_20181128_COI/run012_20181204_COI_relax")
+track.file <- list.files(track.dir, pattern = "*track.tsv", full.names = TRUE)
+
+track_out <- read.table(track.file, header = TRUE, stringsAsFactors = FALSE)
+track_out <- track_out[c(grep(set, track_out$Sample)),] # Subset to the Cruise
+
+# samples.G03
+
+id = as.character(track_out$Sample)
+Sample <- sapply(strsplit(id, "-"), '[', 2)
+
+samples.G03 = data.frame(Sample = Sample, 
+              Tipo = sub('.*(?=.$)', '', as.character(Sample), perl=T),
+              stringsAsFactors = FALSE)
+
+samples.G03[samples.G03$Tipo == 'H','Tipo'] <- 'Huevos'
+samples.G03[samples.G03$Tipo == 'L','Tipo'] <- 'Larvas'
+
+track_out$Sample <- samples.G03$Sample
+track_out$Tipo <- samples.G03$Tipo
+head(track_out)
+
+library(dplyr)
+
+
+track_m <- reshape2::melt(track_out, id.vars=c("Sample", "Tipo"),
+                          variable.name = "Process", 
+                          value.name = "Reads")
+
+track_m$Process <- factor(track_m$Process, 
+                          levels = c("input", "filtered", 
+                                     "denoisedF", "denoisedR", 
+                                     "merged", "tabled", "nonchim"),
+                          ordered=T)
+run <- 'run012'
+
+track_plot <- ggplot(track_m, aes(x=Sample, y=Reads, fill=Process)) + 
+    geom_col(position = position_identity(), width = 0.7, aes(fill = Process), alpha = 0.7) +
+    scale_fill_brewer(palette = "BrBG", direction = 1) +
+    labs(x="Muestras", y = "Lecturas") + # title=paste0(run, ". Corte de lecturas a lo largo del procesamiento"),
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust=1, size = 7), axis.text.y = element_text(size = 7)) +
+    facet_grid(~Tipo, scales="free_x")
+
+print(track_plot)
+
+
+```
+
+```{r Figura 4 (remplazo), out.width='\\textwidth', eval = FALSE, echo = FALSE}
+
+library(GGally)
+
+mergedf.dir <- paste0(path, "/run12_20181128_COI/run012_20181204_COI_relax")
+mergedf.file <- list.files(track.dir, pattern = "*_mergedf.tsv", full.names = TRUE)
+merge_df <- read.table(mergedf.file, header = TRUE, stringsAsFactors = FALSE)
+
+# Adding factor to color the plot by metadata info!
+samples.fc <- merge_df$Sample
+subject <- sapply(strsplit(samples.fc , "-"), `[`, 2)
+samples.fc <- data.frame(Crucero=sapply(strsplit(samples.fc , "-"), `[`, 1), 
+                         Estación=subject, 
+                         Transecto=substr(subject,1,1), 
+                         Tipo=sapply(strsplit(samples.fc , "-"), `[`, 3))
+
+
+
+merge_df <- cbind(samples.fc, merge_df)
+merge_df <- merge_df[c(grep(set, merge_df$Crucero)),] # Subset to the Cruise
+
+
+# my_bin <- function(data, mapping, ..., low = "#132B43", high = "#56B1F7") {
+#   ggplot(data = data, mapping = mapping) +
+#     geom_bin2d(...) +
+#     scale_fill_gradient(low = low, high = high)
+# }
+
+pm <- ggpairs(
+  merge_df, columns = c("nmatch", "seqlen"),
+            columnLabels = c("Región del empalme (nt)", "Tamaño del ASV (nt)"),
+  mapping = aes(color = Tipo, alpha = 0.7), 
+  upper = list(continuous = "blank"),
+  lower = list(
+    continuous = my_bin
+  )
+) + theme_bw()
+
+pm
+
+```
+
+```{r Figura 4 empalme, echo = FALSE, fig.align = "center", fig.cap = "Figura 4. Metricas de calidad del analisis general de los amplicones. Tamano del empalme y amplicón generado. Una correlación negativa es señalada.", out.width='\\textwidth', fig.height=8, fig.width=8 }
+
+mergedf.dir <- paste0(path, "/run12_20181128_COI/run012_20181204_COI_relax")
+mergedf.file <- list.files(track.dir, pattern = "*_mergedf.tsv", full.names = TRUE)
+merge_df <- read.table(mergedf.file, header = TRUE, stringsAsFactors = FALSE)
+
+# 
+# Adding factor to color the plot by metadata info!
+samples.fc <- merge_df$Sample
+subject <- sapply(strsplit(samples.fc , "-"), `[`, 2)
+samples.fc <- data.frame(Crucero=sapply(strsplit(samples.fc , "-"), `[`, 1), 
+                         Estación=subject, 
+                         Transecto=substr(subject,1,1), 
+                         Tipo=sapply(strsplit(samples.fc , "-"), `[`, 3))
+
+
+merge_df <- cbind(samples.fc, merge_df)
+merge_df <- merge_df[c(grep(set, merge_df$Crucero)),] # Subset to the Cruise
+
+
+# also for GOMECC, 
+id = as.character(merge_df$Sample)
+
+Sample <- sapply(strsplit(id, "-"), '[', 2)
+
+samples.G03 = data.frame(Sample = Sample, 
+              Tipo = sub('.*(?=.$)', '', as.character(Sample), perl=T),
+              stringsAsFactors = FALSE)
+
+samples.G03[samples.G03$Tipo == 'H','Tipo'] <- 'Huevos'
+samples.G03[samples.G03$Tipo == 'L','Tipo'] <- 'Larvas'
+merge_df$Tipo <- samples.G03$Tipo
+merge_df$Sample <- samples.G03$Sample
+
+
+data <- data.frame(x = merge_df[,'nmatch'], y = merge_df[,'seqlen'], z = merge_df[,'Tipo'])
+
+# placeholder plot - prints nothing at all
+empty <- ggplot() + geom_point(aes(1, 1), colour = "white") + 
+  theme(plot.background = element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.border = element_blank(), 
+        panel.background = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+
+#Assign color variables
+col1 = "#d8e1cf" 
+col2 = "#438484"
+
+# Density of x and y variables
+
+p1 <- ggplot(data = data, aes(x=x,y=y)) +
+    geom_bin2d(bins = 100) +
+    scale_fill_gradient(low = col1, high = col2) +
+    theme(legend.position = "none",
+        panel.grid = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        panel.background = element_blank(),
+        line = element_blank())+
+        coord_cartesian(xlim = c(min(data$x), max(data$x)), 
+                        ylim = c(min(data$y), max(data$y)))
+
+
+
+
+p2 <- ggplot(data, aes(x = x)) + 
+      stat_density(fill = col1) + 
+      geom_rug(col = col1, alpha = 0.1) + 
+      theme(panel.background = element_blank(),
+            line = element_blank(),
+            axis.title.y=element_blank()) + 
+      xlab("Región del empalme (nt)") + scale_y_continuous(breaks = c(0, 1))
+      # coord_cartesian(xlim = c(min(data$x), max(data$x)))
+
+
+p3 <- ggplot(data, aes(x = y)) + 
+      stat_density(fill = col2) + 
+      geom_rug(col = col2, alpha = 0.1)  + 
+      coord_flip(xlim = c(min(data$y), max(data$y))) +
+      scale_y_continuous(breaks = c(0, 1)) +
+      theme(panel.background = element_blank(),
+            line = element_blank(),
+            axis.title.x=element_blank()) + 
+      xlab("Tamaño del amplicón (nt)")
+
+# arrange the plots together, with appropriate height and width for each row
+# and column
+
+library(gridExtra)
+
+grid.arrange(p2, empty, p1, p3,
+                 ncol=2, 
+                 nrow=2, 
+                 widths=c(4, 1), 
+                 heights=c(1, 4))
+
+```
+
+```{r write.table}
+save <- psmelt(clean.obj)
+# save <- psmelt(physeq)
+colnames(save)[1] <- "ASV"
+write.csv(save, file = paste0(set, "_taxones_identificados.csv"), 
+          row.names = FALSE, quote = FALSE)
+rm(save)
+```
+
+
+```{r pyseq2-transform.sample.counts}
+# Transform dataset to relative abundance
+physeq2 <- NULL
+# usar clean.obj o quitar zeros de physeq:
+#physeq2 <- clean.obj
+physeq2 <- transform_sample_counts(physeq, function(x) (x / sum (x) ) )
+physeq2 <- phyloseq::filter_taxa(physeq2, function(x) var(x) > 1e-5, TRUE)
+physeq2 <- transform_sample_counts(physeq2, function(x) x * 100 )
+
+```
+
+Debido a que el número de secuencias para cada muestra individual fue diferente. Con el objetivo de comparar las diferencias entre las muestras, se estandarizó la matriz de distribución de taxones (eg. OTUs) en abundancia relativa (RA) basada en la siguiente ecuación: $$RA_{ij} = \frac{S_{ij}}{\sum_{j=1}^{n} S_{ij}}*100$$
+
+Donde $i$ es la posición de la muestra (1 a $m$), $j$ es la posición del taxon (1 a $n$) y  $S_{ij}$ es el número de secuencias en la muestra i y el taxón de la posición $j$. $\sum_{j=1}^{n} S_{ij}$ equivale a la sumatoria de las secuencias en la muestra $i$. Aquí m equivale a `r nsamples(physeq)` muestras y $n$ equivale a `r ntaxa(physeq)` taxones.
+
+## Clasificación taxonómica y abundancia relativa
+
+Para la etapa de asignación implementamos la base de datos midori-longest (Machida et. al, 2017) que incluye 583,043 secuencias mitocondriales de referencias con 7 niveles taxonómicos completos. Los amplicones se asignaron utilizando el clasificador bayesiano RDP (wang et. al 2007). El algoritmo de asignación fue configurado con los siguientes parámetros, bootstrap de confidencia = 0, iteraciones = 1000 y tamaño de k-mero = 8 (debido a que cada amplicón representa una variable biológica (amplicones libre de error) se usó un bootstrap de 0 para obtener una asignación completa.
+
+La figura 5 muestra el árbol de los taxones presentes en el crucero `r set`. Se observan taxones que estuvieron presentes más de dos veces en las muestras del crucero. La paleta de colores nos indican los taxones que predominan a lo largo de las muestras siendo el color gris los menos prevalentes. La tabla adjunta (`r paste0(set, "_taxones_identificados.csv")`) contiene información desglosada que se presenta en esta figura.
+
+Para obtener una perspectiva biológica de la las comunidades se calculó la abundancia de los amplicones colapsados a diferentes niveles taxonómicos. El siguiente grupo de figuras (Figuras 6 a 9) muestra en mapas de calor la abundancia aglomerada de los taxones por estación a lo largo de los niveles taxonómicos Filo, Clase, Orden y Familia.  Además, la figura 10 se observan los géneros abundantes a lo largo de las muestras. Se conservaron aquellos con una varianza mayor a 1e-5, corresponde un número de `r ntaxa(clean.obj)` taxones a lo largo de las muestras de crucero `r set`
+
+```{r Figura 5. metacoder, fig.align = "center", fig.cap = "Figura 5. Presencia de taxones en el crucero. taxones con varianza mayor a  1e-5, el filo Artropoda es removido.", out.width='\\textwidth'}
+library(metacoder)
+library(taxa)
+
+clean.obj.st = subset_taxa(clean.obj, Filo!="Arthropoda")
+phylo2meta <- clean.obj.st
+obj <- parse_phyloseq(phylo2meta)
+
+sample_dat <- sample_data(phylo2meta)
+sample_dat$sample_id <- rownames(sample_dat)  
+
+# Calculamos la abundancia por taxon y no la abundancia por ASV
+obj$data$tax_abund <- calc_taxon_abund(obj, "otu_table",
+                                       cols = sample_dat$sample_id)
+
+# We can also easily calculate the number of samples that have reads for each taxon:
+obj$data$tax_occ <- calc_n_samples(obj, "tax_abund", groups = sample_dat$Tipo)
+
+set.seed(100) # This makes the plot appear the same each time it is run 
+
+# node_color <- sample(sample_dat$Tipo)[1]
+
+# noquote(paste0('obj$data$tax_occ$',node_color)),
+
+heat_tree(obj, 
+          node_label = taxon_names,
+          node_size = n_obs,
+          node_color = n_obs,# obj$data$tax_occ$A, 
+          #node_size_axis_label = "Numero de amplicones ",
+          node_color_axis_label = paste0("Presencia de taxones en el crucero ", set),
+          # The primary layout algorithm
+          layout = "davidson-harel", 
+          # The layout algorithm that initializes node locations
+          initial_layout = "reingold-tilford")
+
+# detach("package:taxa", unload=TRUE)
+#las siguientes lineas son para hacer un subset del grafico
+# unique(tax_table(clean.obj)[,2])
+# set.seed(1) # Each number will produce a slightly different result for some layouts
+# obj %>%
+#   #filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+#   filter_taxa(taxon_names %in% c("Arthropoda", "Mollusca", "Nematoda"),
+#               subtaxa = TRUE) %>%
+  # heat_tree(obj,
+  #         node_label = taxon_names,
+  #         node_size = n_obs,
+  #         node_color = Larva,
+  #         node_size_axis_label = "Larva count",
+  #         node_color_axis_label = "Samples with reads",
+  #         layout = "davidson-harel", # The primary layout algorithm
+  #         initial_layout = "reingold-tilford") # The layout algorithm that initializes node locations
+```
+
+
+
+```{r Figura 6. Heatmap.phy, fig.align = "center", fig.cap = "Figura 6. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Se presentan los taxones con varianza mayor a  1e-5.", out.width='\\textwidth', fig.width=8}
+# Agglomerate taxa of the same Specie type [phylotyping] // demora 1-2 min //
+Phylum <-tax_glom(physeq2, taxrank="Filo")
+taxaOrder = rownames(sort(unique(tax_table(Phylum)[,'Filo']), decreasing=TRUE))
+
+plot_heatmap(Phylum, 
+             sample.label = "Estación", 
+             sample.order = "Transecto",
+             taxa.label = "Filo",
+             taxa.order = taxaOrder,
+             na.value = "white", trans = NULL) +
+        scale_fill_gradient2(low = "#FFFFD9", high = "#081D58") + #, limits=c(0,100)) +
+        labs(fill = "Abundancia\nRelativa (%)", title = paste0(set, " Crucero"))
+
+```
+
+
+```{r Figura 7. Heatmap.Class, fig.align = "center", fig.cap = "Figura 7. Composición de las comunidades a nivel Clase a lo largo de las estaciones. Se presentan los taxones con varianza mayor a  1e-5.", out.width='\\textwidth', fig.width=8}
+
+Class <-tax_glom(physeq2, taxrank="Clase")
+taxaOrder = rownames(sort(unique(tax_table(Class)[,'Clase']), decreasing=TRUE))
+
+plot_heatmap(Class, 
+             sample.label = "Estación", 
+             sample.order = "Transecto",
+             taxa.label = "Clase",
+             taxa.order = taxaOrder,
+             na.value = "white", trans = NULL) +
+        scale_fill_gradient2(low = "#FFFFD9", high = "#081D58") + #, limits=c(0,100)) +
+        labs(fill = "Abundancia\nRelativa (%)", title = paste0(set, " Crucero"))
+```
+
+```{r Figura 8. Heatmap.Or, fig.align = "center", fig.cap = "Figura 8. Composición de las comunidades a nivel Orden a lo largo de las estaciones. Se presentan los taxones con varianza mayor a  1e-5.", fig.height = 7, fig.width = 8}
+
+Order <-tax_glom(physeq2, taxrank="Orden")
+taxaOrder = rownames(sort(unique(tax_table(Order)[,'Orden']), decreasing=TRUE))
+
+plot_heatmap(Order, 
+             sample.label = "Estación", 
+             sample.order = "Transecto",
+             taxa.label = "Orden",
+             taxa.order = taxaOrder,
+             na.value = "white", trans = NULL) +
+        scale_fill_gradient2(low = "#FFFFD9", high = "#081D58") + #, limits=c(0,100)) +
+        labs(fill = "Abundancia\nRelativa (%)", title = paste0(set, " Crucero"))
+
+```
+
+
+```{r Figura 9. Heatmap.Fam, fig.align = "center", fig.cap="Figura 9. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Se presentan los taxones con varianza mayor a  1e-5; respectivamente, se indican el nivel de Filos y Clase en las columnas del panel derecho", fig.width = 8, fig.height = 7}
+
+Family <-tax_glom(physeq2, taxrank="Familia")
+taxaOrder = rownames(sort(unique(tax_table(Family)[,'Familia']), decreasing=TRUE))
+
+h <- plot_heatmap(Family, 
+                  #"NMDS", "bray", 
+             sample.label = "Estación", 
+             sample.order = "Transecto",
+             taxa.label = "Familia",
+             taxa.order = taxaOrder,
+             na.value = "white", trans = NULL) +
+        scale_fill_gradient2(low = "#FFFFD9", high = "#081D58") + #, limits=c(0,100)) +
+        labs(fill = "Abundancia\nRelativa (%)", title = paste0(set, " Crucero"))
+
+h + facet_grid(Filo+Clase ~ ., 
+               scales = "free", space = "free" 
+    #                             switch = "y"
+              ) + 
+  theme(
+  strip.text.y = element_text(
+                        angle = 0, 
+                        size = 5),
+  strip.background = element_rect(colour = "black", 
+                                  fill = "transparent",
+                                  size = 0.1),
+  panel.spacing = unit(0.001, "lines")
+       ) +
+  labs(fill = "Abundancia\nRelativa (%)")
+```
+
+
+```{r Figura 10. Boxplot Genus, fig.align = "center", fig.cap = "Géneros más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra.", fig.width = 8, fig.height = 7}
+
+# also try: https://github.com/joey711/phyloseq/issues/494
+
+Level <- length(Ranks)
+Rank <- Ranks[Level]
+
+glom <- clean.obj # you can also use clean.obj
+glom <- transform_sample_counts(glom, function(x) (x / sum (x) ) * 100 )
+glom <- tax_glom(glom, taxrank = Rank)
+
+# create dataframe from phyloseq object
+library(data.table)
+
+dat <- data.table(psmelt(glom))
+# convert Taxa to a character vector from a factor because R
+dat$Especie <- as.character(dat$Especie)
+
+# Change name to remainder of rank less than 1%
+dat[(Abundance <= 10), Especie := "Otros"]
+
+# dat[(median <= 0), Especie := "Otros"]
+# group dataframe by Taxa, calculate median rel. abundance
+# dat[, median := median(Abundance, na.rm = TRUE), by = "Familia"]
+# plot(density(dat$median))
+
+# boxplot
+ggplot(dat[Abundance > 0 & Especie != 'NA'],
+      aes(x=Especie,
+          y=Abundance)) +
+ geom_boxplot() +
+ coord_flip() +
+ #scale_y_log10() + 
+ ylim(0, round(max(dat$Abundance))) + ylab("Abundancia Relativa (%)") + 
+ theme_minimal() + facet_wrap(~ Tipo, nrow = 2 )
+```
+
+```{r Figura N. Bubbleplot, bubbleplot Species, fig.align = "center", fig.cap = "Especies más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra (Se colorean por orden cada una de las especies).", fig.width = 8, fig.height = 7}
+
+library(RColorBrewer)
+
+# colourCount = length(unique(tax_table(physeq)[,'Orden'])) # length(unique(sample_data(physeq)$Tipo))))
+# getPalette = colorRampPalette(brewer.pal(12, "Paired")) 
+
+
+ggplot(dat[Abundance > 0 & Especie != 'Otros' & Especie != 'NA'], 
+       aes(x=Estación, 
+           y=Especie, 
+           color=Orden)) +
+  geom_point(aes(size=Abundance))+ facet_grid(.~Tipo, scales="free_x") +
+  #scale_color_manual(values = getPalette(colourCount)) +
+  scale_color_brewer(palette = 'Paired') +
+  theme_classic() +
+  theme(
+        axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 90, hjust = 1))
+
+
+```
+
+
+```{r metacoder.by.group, eval = FALSE, echo = FALSE}
+
+# Error in apply(layout_matrix, MARGIN = 2, function(x) all(is.na(x))) : 
+# Comparing two treatments/groups
+
+
+# La siguientes lineas son para comparar las muestras de difentes grupos, ej. larva y huevo
+# Comparing any number of treatments/groups
+
+  
+obj$data$diff_table <- compare_groups(obj, dataset = "tax_abund",
+                                      cols = sample_dat$sample_id, # What columns of sample data to use
+                                      groups = sample_dat$Tipo) # What category each sample is assigned to
+print(obj$data$diff_table)
+
+
+set.seed(1)
+
+heat_tree_matrix(obj,
+                 dataset = "diff_table",
+                 # n_obs is a function that calculates, in this case, the number of OTUs per taxon
+                 node_size = n_obs, 
+                 node_label = taxon_names,
+                 node_color = log2_median_ratio, # A column from `obj$data$diff_table`
+                 node_color_range = diverging_palette(), # The built-in palette for diverging data
+                 node_color_trans = "linear", # The default is scaled by circle area
+                 node_color_interval = c(-3, 3), # The range of `log2_median_ratio` to display
+                 edge_color_interval = c(-3, 3), # The range of `log2_median_ratio` to display
+                 node_size_axis_label = "Number of ASVs",
+                 node_color_axis_label = "Log2 ratio median proportions",
+                 layout = "davidson-harel", # The primary layout algorithm
+                 initial_layout = "reingold-tilford", # The layout algorithm that initializes node locations
+                 output_file = "differential_heat_tree.pdf") # Saves the plot as a pdf file
+```
+
+## Estimación de los índices de diversidad y presentación gráfica de resultados.
+
+La estimación de los índices de diversidad y la generación de representaciones gráficas de los resultados del análisis bioinformático se realizó en R v3.5.0 utilizando diferentes paquetes especializados en análisis de datos ecológicos y gráficos.
+
+Se realizó una curva de rarefacción para evaluar el esfuerzo de secuenciación por estación (Figura 11). Se observó que en la mayoría de las estaciones el número de amplicones puede incrementar aún más si se dedica un mayor esfuerzo de secuenciación.
+
+```{r funcion rarefaccion, echo = FALSE}
+ggrare2 <- function (physeq_object, step = 10, label = NULL, color = NULL, 
+          plot = TRUE, parallel = FALSE, se = TRUE) 
+{
+  x <- methods::as(phyloseq::otu_table(physeq_object), "matrix")
+  if (phyloseq::taxa_are_rows(physeq_object)) {
+    x <- t(x)
+  }
+  tot <- rowSums(x)
+  S <- rowSums(x > 0)
+  nr <- nrow(x)
+  rarefun <- function(i) {
+    #cat(paste("rarefying sample", rownames(x)[i]), sep = "\n")
+    n <- seq(1, tot[i], by = step)
+    if (n[length(n)] != tot[i]) {
+      n <- c(n, tot[i])
+    }
+    y <- vegan::rarefy(x[i, , drop = FALSE], n, se = se)
+    if (nrow(y) != 1) {
+      rownames(y) <- c(".S", ".se")
+      return(data.frame(t(y), Size = n, Sample = rownames(x)[i]))
+    }
+    else {
+      return(data.frame(.S = y[1, ], Size = n, Sample = rownames(x)[i]))
+    }
+  }
+  if (parallel) {
+    out <- parallel::mclapply(seq_len(nr), rarefun, mc.preschedule = FALSE)
+  }
+  else {
+    out <- lapply(seq_len(nr), rarefun)
+  }
+  df <- do.call(rbind, out)
+  if (!is.null(phyloseq::sample_data(physeq_object, FALSE))) {
+    sdf <- methods::as(phyloseq::sample_data(physeq_object), 
+                       "data.frame")
+    sdf$Sample <- rownames(sdf)
+    data <- merge(df, sdf, by = "Sample")
+    labels <- data.frame(x = tot, y = S, Sample = rownames(x))
+    labels <- merge(labels, sdf, by = "Sample")
+  }
+  if (length(color) > 1) {
+    data$color <- color
+    names(data)[names(data) == "color"] <- deparse(substitute(color))
+    color <- deparse(substitute(color))
+  }
+  if (length(label) > 1) {
+    labels$label <- label
+    names(labels)[names(labels) == "label"] <- deparse(substitute(label))
+    label <- deparse(substitute(label))
+  }
+  p <- ggplot2::ggplot(data = data, ggplot2::aes_string(x = "Size", 
+                                                        y = ".S", group = "Sample", color = color))
+  p <- p + ggplot2::labs(x = "Sequence Sample Size", y = "Species Richness")
+  if (!is.null(label)) {
+    p <- p + ggplot2::geom_text(data = labels, ggplot2::aes_string(x = "x", 
+                                                                   y = "y", label = label, color = color), size = 4, 
+                                hjust = 0)
+  }
+  p <- p + ggplot2::geom_line()
+  if (se) {
+    p <- p + ggplot2::geom_ribbon(ggplot2::aes_string(ymin = ".S - .se", 
+                                                      ymax = ".S + .se", color = NULL, fill = color), alpha = 0.2)
+  }
+  if (plot) {
+    plot(p)
+  }
+  invisible(p)
+}
+```
+
+```{r Figura 11 Rarefaccion, echo = FALSE, fig.align = "center", fig.cap = "Figura 11. Curva de rarefacción por muestra. Se presenta el número de amplicones a lo largo de las estaciones en relación al número de secuencias.",  out.width='\\textwidth', fig.width = 7, fig.height = 4}
+# https://github.com/gauravsk/ranacapa/
+# and https://github.com/joey711/phyloseq/issues/143
+
+library(ranacapa)
+theme_set(theme_classic())
+
+rr <- physeq
+minsample <- min(sample_sums(rr))
+
+rrplot <- ggrare2(rr, step = 100, label = "Estación", 
+                 color="Tipo", 
+                 se = FALSE, plot = FALSE) 
+
+rrplot +
+  xlab("Numero de secuencias") + ylab("Numero de amplicones") + 
+    theme(text = element_text(size=12),
+        panel.background = element_blank(), legend.position = "top") +
+  geom_point(size=0.7) +
+  geom_vline(xintercept = min(sample_sums(rr)), linetype = "dashed") +
+  scale_color_manual(values=getPalette(length(unique(sample_data(physeq)$Tipo))))
+```
+
+
+```{r Figura 12. Div. alfa, fig.align = "center", fig.cap = "Figura 12. Diversidad alfa por estación. Se muestran los índices de diversidad alfa de Shannon e Inverso de Simpson calculados para la comunidad de zooplancton cada estación.", out.width='\\textwidth', fig.width = 7, fig.height = 5}
+
+library(RColorBrewer)
+
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+alfa <- physeq
+n <-length(unique(sample_data(alfa)$Tipo))
+alfa <- transform_sample_counts(alfa, function(x) 1E6 * x/sum(x))
+
+prichnes <- plot_richness(alfa, x="Estación", color="Tipo", measures=c("Shannon", "InvSimpson"))
+prichnes$layers <- prichnes$layers[-1]
+prichnes + scale_color_manual(values=getPalette(n)) + 
+    geom_point(size=5, alpha=0.7) +
+    theme(
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())  +
+        ylab("Diversidad alfa") +
+        labs(title = paste0(set, " Crucero"))
+          
+ 
+```
+
+La diversidad alfa se obtuvo a través del cálculo de los índices de Shannon e Inverso de Simpson en cada estación (Figura 12). En ambos índices se observa que la mayoría de las estaciones se encuentra en un rango de diversidad definido pero sobresalen (contienen mayor diversidad) las siguientes (tabla 1)
+
+```{r Tabla 1. Índices Diversidad, eval = FALSE, echo = FALSE}
+library(phyloseq)
+
+richness <- estimate_richness(physeq, measures = c("Observed", 
+                                   "Chao1", "ACE", 
+                                   "Fisher", "Shannon", 
+                                   "InvSimpson"
+                                   ))
+
+rownames(richness) <- sample_data(physeq)$`Estación`
+
+save <- round(richness[order(richness$Shannon, decreasing = TRUE),], digits = 2)
+
+write.table(save, file = paste0(path, "_",set, "_richness.csv"))
+
+knitr::kable(save, caption = 'Tabla 1')
+
+```
+
+La diferencia en composición de la comunidad entre estaciones se evaluó mediante un análisis de coordenadas principales usando una matriz de distancias Jaccard. En la figura 13 se observa que no hay formación de grupos definidos de estaciones indicando comunidades similares.
+
+```{r Figura 13. PCoA, fig.align = "center", fig.cap = "Figura 13. PCoA. Componentes principales (Distancias Jaccard).", fig.width = 7, fig.height = 5}
+
+physeq.rr <- transform_sample_counts(physeq, function(x) 1E6 * x/sum(x))
+iDist <- phyloseq::distance(physeq.rr, method="jaccard") # Jaccard
+iMDS  <- ordinate(rr, "PCoA", distance=iDist) 
+
+p <- plot_ordination(rr, iMDS,
+                     color="Tipo"
+                     #label="Estación"
+                     #shape="Cruice"
+                     ) 
+p$layers <- p$layers[-1]
+p + geom_text(aes(label = Estación, label.size = 10)) + 
+    theme(legend.position = "top")+
+    scale_color_manual(values=getPalette(length(unique(sample_data(rr)$Tipo))))
+
+```
+
+```{r NMDS, eval = FALSE, echo = FALSE}
+# Transform data to proportions as appropriate for Bray-Curtis distances
+
+ps.prop <- transform_sample_counts(physeq, function(x) x/sum(x))
+ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
+
+p <- plot_ordination(ps.prop, ord.nmds.bray,
+                     color="Tipo",
+                     title="Bray NMDS ordinations"
+                     ) 
+
+p$layers <- p$layers[-1]
+p + geom_text(aes(label = Estación, label.size = 10)) + 
+    theme(legend.position = "top")+
+    scale_color_manual(values=getPalette(length(unique(sample_data(rr)$Tipo))))
+```
+
+```{r Abundance Difference, eval = FALSE, echo = FALSE}
+
+# # #
+# Test abundance difference 
+# # #
+
+# Remove taxa not seen more than 3 times in at least 10% of the samples. This protects against an ASVs with small mean & trivially large C.V.
+GP = phyloseq::filter_taxa(physeq, function(x) sum(x > 3) > (0.2*length(x)), TRUE)
+# Standardize abundances to the median sequencing depth
+total = median(sample_sums(GP))
+standf = function(x, t=total) round(t * (x / sum(x)))
+gps = transform_sample_counts(GP, standf)
+# Filter the taxa using a cutoff of 3.0 for the Coefficient of Variation
+gpsf = phyloseq::filter_taxa(gps, function(x) sd(x)/mean(x) > 3.0, TRUE)
+gpsf
+
+```
+
+## Cribado de Peces
+
+Para visualizar este grupo de forma independiente (taxones en la Clase _Actinopteri_) se generó un gráfico de abundancia relativa a nivel familiar (Figura 14). En el dendograma de la Figura 15 se observa que las secuencias de los amplicones asignados a las diferentes familias de la Clase _Actinopteri_ no forman grupos definidos (ie. no son monofiléticos).
+
+Para la construcción del árbol, se alinearon los amplicones para la construyó el arbol filogenetico utilizando el método relajado Neihbor-Joining (Evans, J. et al 2006) ajustado con un modelo GTR+G+I (Generalized time-reversible with Gamma rate variation).
+
+```{r Figura 14. Peces, fig.align = "center", fig.cap = "Figura 14. Taxones (nivel Especie) con varianza mayor a 1e-5 asignados a la Clase de Actinoperigy.", fig.width = 7, fig.height = 5}
+library(phyloseq)
+actii = subset_taxa(physeq2, Clase == "Actinopterygii") #  "Actinopteri"
+actii = prune_taxa(taxa_sums(actii) > 0, actii)
+actii.glm = tax_glom(actii, taxrank="Especie")
+
+# actii.Ist = subset_taxa(physeq, Familia=="Istiophoridae")
+# actii.Scom = subset_taxa(physeq, Familia=="Scombridae")
+
+plotbar = actii.glm
+
+G03.samples <- c(sample_data(actii.glm)$`Estación`[1:22]) # 23:45
+plotbar <- subset_samples(actii.Fgl, Tipo == 'Larva')
+
+colourCount = length(unique(tax_table(plotbar)[,'Familia']))
+getPalette = colorRampPalette(brewer.pal(9, "Spectral"))
+
+theme_set( theme_classic())
+
+bar <- NULL
+bar <- plot_bar(plotbar, "Especie", fill="Orden")  +
+       geom_bar(stat = "identity") +
+  scale_fill_manual(values = getPalette(colourCount)) +
+   ylab("Abundancia Relativa (%)") +  coord_flip() +
+  guides(fill=guide_legend(ncol=2)) + facet_wrap(~Estación)
+
+  
+bar + theme(
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+
+```
+
+```{r redoing ntaxa plot}
+actii.df <- as_tibble(phyloseq::psmelt(actii))
+# actii.df[complete.cases(actii.df[,Ranks]), ]
+actii.df <- actii.df[, c('Estación', 'Tipo', 'Abundance', Ranks)]
+
+
+lineage <- reshape2::melt(actii.df, id.vars=c('Estación', 'Tipo', 'Abundance'),
+                          variable.name = "Rank", 
+                          value.name = "lineage")
+
+
+
+lineage$Rank <- factor(lineage$Rank, 
+                          levels = Ranks,
+                          ordered=T)
+# by rank
+# lineage.stats <- aggregate(lineage[,'Rank'], by=list(lineage[,'lineage']), FUN = table)
+
+# lineage[lineage[,'Rank'] == 'Especie', 'lineage']
+# lineage[lineage[,'Rank'] == 'Especie', 'Estación']
+# by species
+lineage.stats <- aggregate(lineage[lineage[,'Rank'] == 'Especie', 'Estación'], 
+                          by=list(lineage[lineage[,'Rank'] == 'Especie', 'lineage']), FUN = table)
+
+
+lineage.stats <- data.frame(lineage = lineage.stats[,1], lineage.stats[,2])
+
+
+lineage.datavis <- reshape2::melt(lineage.stats,
+                          variable.name = "Estación", # or Rank if by rank
+                          value.name = "ntaxa")
+
+plot(density(lineage.datavis$ntaxa))
+
+# second aggregregation of species per station
+
+lineage.stats2 <- aggregate(lineage.datavis[,'ntaxa'], 
+                          by=list(lineage.datavis[,'Estación']), FUN = sum)
+
+lineage.stats2 <- data.frame(lineage = lineage.stats2[,1], lineage.stats2[,2])
+# :(( no funciono ! revisar
+ggplot() + geom_bar(aes(y = ntaxa, x = Rank, fill = lineage), data = lineage.datavis,
+                           stat="identity")
+
+```
+
+
+```{r Figura x. SuperHeat, eval = FALSE, echo = FALSE}
+library(superheat)
+
+#Class <- NULL
+#Class <- tax_glom(physeq, taxrank="Clase")
+#Class <- transform_sample_counts(physeq, function(x) (x / sum (x) * 100) )
+
+
+heat.tbl <- as.matrix(otu_table(Class))
+rownames(heat.tbl) <- sample_data(Class)$`Estación`
+colnames(heat.tbl) <- tax_table(Class)[,'Clase']
+yr <- sample_sums(physeq) # # log10(sample_sums(physeq)),
+heat.samples <- sample_data(Class)$Tipo
+heat.samples[heat.samples == 'Larvas'] <- '#E41A1C'
+heat.samples[heat.samples == 'Huevos'] <- '#999999'
+
+
+superheat(heat.tbl, 
+          # scale the variables/columns
+          scale = FALSE,
+          # change the color
+          heat.pal = c( "#FFFFD9", "#081D58"),
+          # change the color of the labels
+          left.label.col = "white",
+          # change the size of the label text
+          left.label.text.size = 3,
+          # change the angle of the label text
+          bottom.label.text.angle = 90,
+          bottom.label.text.size = 3,
+          bottom.label.text.alignment = "right",
+          bottom.label.col = "white",
+          # add barplot next to the rows
+          yr = yr,
+          yr.obs.col =  heat.samples,
+          yr.axis.name = "Numero de Secuencias",
+          yr.plot.type = "bar",
+          # set bar colors
+          yr.bar.col = "black",
+          # Titles
+          column.title = 'Taxones (Clase)',
+          column.title.size = 4,
+          row.title = 'Muestras',
+          row.title.size = 4,
+          # remove the grid
+          grid.hline = FALSE,
+          grid.vline = FALSE,
+          legend.text.size = 7
+          )
+# great idea, so lets modify and reply the colors and labels from the original heatmap.
+```
+
+```{r Gomec03, eval = FALSE, echo = FALSE}
+G03.samples2 <- as.character(sample_data(actii.Fgl)$`Estación`[23:nsamples(actii.Fgl)])
+plotbar <- NULL
+plotbar <- subset_samples(actii.Fgl, Estación = G03.samples) 
+
+colourCount = length(unique(tax_table(plotbar)[,'Familia']))
+getPalette = colorRampPalette(brewer.pal(9, "Spectral"))
+
+theme_set( theme_classic())
+
+bar <- NULL
+bar <- plot_bar(plotbar, "Familia", fill="Familia")  +
+       geom_bar(stat = "identity") +
+  scale_fill_manual(values = getPalette(colourCount)) +
+   ylab("Abundancia Relativa (%)") +  coord_flip() +
+  guides(fill=guide_legend(ncol=2)) + facet_wrap(~Estación)
+
+  
+bar + theme(
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+
+plot_bar(plotbar, "Familia")  +
+       geom_bar(stat = "identity") +
+  scale_fill_manual(values = getPalette(colourCount)) +
+   ylab("Abundancia Relativa (%)") +  coord_flip() +
+  guides(fill=guide_legend(ncol=2)) + facet_wrap(Estación ~.)
+```
+
+```{r Tree construction, echo = FALSE, warning=FALSE, echo = FALSE, message = FALSE}
+#.cran_packages <- c("dplyr")
+#.bioc_packages <- c("Biostrings", "DECIPHER", "phangorn")
+#sapply(c(.cran_packages, .bioc_packages), require, character.only = TRUE)
+
+require("dplyr")
+require("Biostrings")
+require("DECIPHER")
+require("phangorn")
+
+fasta.dir <- c("~/metagenomics/COI/run012/")
+fasta.file <- list.files(fasta.dir, pattern = "run012_relax_ASVs.fasta", full.names = TRUE)
+
+seqs <- readDNAStringSet(fasta.file)
+#names(seqs) <- seqs # This propagates to the tip labels of the tree
+
+
+actii.df <- as_tibble(phyloseq::psmelt(actii))
+colnames(actii.df)[1] <- "label"
+
+df <- actii.df %>% group_by(label) %>% 
+  filter (!duplicated(label)) %>% 
+  select(label, Sample, Clase, Orden, Familia, Genero)
+
+seqs.subset <- seqs[names(seqs) %in% rownames(tax_table(actii))]
+
+# Construct phylogenetic tree
+
+alignment <- AlignSeqs(DNAStringSet(seqs.subset), anchor=NA, verbose = FALSE)
+
+# The phangorn R package is then used to construct a phylogenetic tree. 
+# follow lines construct a neighbor-joining tree, 
+# and then fit a GTR+G+I (Generalized time-reversible with Gamma rate variation) maximum likelihood tree 
+# using the neighbor-joining tree as a starting point
+
+phangAlign <- phyDat(as(alignment, "matrix"), type="DNA")
+dm <- dist.ml(phangAlign)
+
+treeNJ <- NJ(dm) # Note, tip order != sequence order
+fit = pml(treeNJ, data=phangAlign)
+fitGTR <- update(fit, k=4, inv=0.2)
+fitGTR <- optim.pml(fitGTR, model="GTR", optInv=TRUE, optGamma=TRUE,
+        rearrangement = "stochastic", control = pml.control(trace = 0))
+
+detach("package:phangorn", unload=TRUE)
+
+
+```
+
+```{r Figura 15. GTR+G+I tree, fig.align = "center", fig.cap = "Figura 15. Las secuencias de _Actinoperigy_ fueron alineadas y la filogenia construída por el método Neighbor Joining ajustado con el modelo GTR+G+I. La paleta de colores indica la asociación de los taxones a nivel Familia y la etiqueta de los géneros.", fig.height = 7}
+
+tree <- fitGTR$tree
+
+library(ggtree)
+
+x <- as_data_frame(tree)
+y <- full_join(x, df, by = 'label')
+tre <- NULL
+tre <- y %>% tidytree::as.treedata()
+
+
+library(RColorBrewer)
+
+colourCount = length(unique(df$Familia))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+ggtree(tre, branch.length='none', layout='slanted', aes(color= Familia, fill=Familia), na.rm = FALSE) +
+  theme(legend.position="right") +
+  scale_color_manual(values = c(getPalette(colourCount)), 
+                     na.value = "grey", 
+                     guide = guide_legend(ncol=1)) +
+  xlim(0, 30) +
+  geom_tiplab(size=1, aes(label=Familia), offset=0.5) +
+  geom_nodepoint(alpha=1/4, size=2) + theme(legend.position = "none",
+                                            panel.grid = element_blank())
+
+```
+
+## Citas
+
+1. Callahan BJ, McMurdie PJ, Rosen MJ, Han AW, Johnson AJA, Holmes SP (2016). “DADA2: High-resolution sample inference from Illumina amplicon data.” _Nature Methods_, *13*, 581-583.
+
+2. Machida RJ, Leray M, Ho SL, Knowlton N, (2017). Metazoan mitochondrial gene sequence reference datasets for taxonomic assignment of environmental samples. _Nature Scientific Data_, Sci Data. 2017; 4: 170027.
+
+3.  Wang, Q, G. M. Garrity, J. M. Tiedje, and J. R. Cole. (2007). Naïve Bayesian Classifier for Rapid Assignment of rRNA Sequences into the New Bacterial Taxonomy. _Appl Environ Microbiol_. 73(16):5261-7.
+
+4. Callahan BJ, Sankaran K, Fukuyama JA et al. Bioconductor Workflow for Microbiome Data Analysis: from raw reads to community analyses [version 2; referees: 3 approved]. F1000Research 2016, 5:1492
+
+

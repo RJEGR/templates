@@ -8,11 +8,27 @@ output:
   word_document: default
     
 ---
+<!-- COMENTARIOS del flujo de analisis -->
+<!-- Se cargan los datos (árbol, metadatos y archivo biom (cons.taxonomy + shared.file)  -->
+<!-- Se procesa la taxonomía para re-etiquetar Undetermined y Unknown niveles a NA  -->
+<!-- Se genera el objeto phyloseq de la siguiente manera: -->
+<!-- phyloseq = subset_taxa(phyloseq, Reino!="NA") #  remove un-assign OTUs -->
+<!-- physeq = Subset_samples by cruise (subset_samples) -->
+<!-- physeq = Removing any taxa of abundance of zero -->
+<!-- clean.phyloseq = Remove taxa not k greater than k (2L)  -->
+<!-- write.table de taxones_identificados.csv -->
+<!-- Animalia <- subset_taxa(physeq, Reino == "Animalia") -->
+<!-- Animalia.restore <-  Animalia # to restore any analysis from here -->
+<!-- Animalia <- transform_sample_counts(Animalia, function(x) (x / sum (x) )) -->
+<!-- Usamos el objeto Animalia para el resto de las tablas, figuras y análisis de diversidad: -->
+
+
+
 
 ```{r setup, include=FALSE}
 # Setting global option in all the chunks-code
 knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300, 
-                      fig.path='/Users/cigom/metagenomics/run13_18S/figures/'
+                      fig.path='/Users/cigom/metagenomics/run13_18S/data-results/'
                       # fig.width=12, fig.height=8 #
                       )
 ```
@@ -20,29 +36,30 @@ knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300,
 ## Generalidades del análisis
 
 ```{r quality}
-set <- 'M03'
+set <- 'M03' # D03, D04, set and print Knit M03
 path <- c("/Users/cigom/metagenomics/run13_18S")
 qc.dir <- paste0(path, "/fastqc/")
 qc.files <- list.files(qc.dir, full.names = TRUE, pattern = set)
 nsamp <- as.numeric(length(qc.files)/2)
-
 ```
 
 ```{r Construct phyloseq.obj, echo = FALSE}
 library(phyloseq)
 # Path files for processing within phyloseq
 
-biom.dir <- paste0(path, "/downstream")
+obj.dir <- paste0(path, "/downstream")
 
-setwd(biom.dir)
+setwd(obj.dir)
+
 
 # An example of group file could be created as using the files file inputed in mothur
 # system("cat initial.contigs | awk '{print $1}' > groups")
 # system("cat initial.contigs | awk '{print $1}' | cut -d'_' -f1,2,3,4,5 | sed 's/_/ /g' > factors")
 # system("paste groups factors | tr '\t' ' ' > cigom.groups")
 
-mbiom = list.files(biom.dir, full.names = TRUE, pattern = "biom")
-mgroup = list.files(biom.dir, full.names = TRUE, pattern = "cigom.groups")
+# mbiom = list.files(obj.dir, full.names = TRUE, pattern = "phyloseq.biom")
+
+mgroup = list.files(obj.dir, full.names = TRUE, pattern = "cigom.groups")
 
 
 # Format sample(group) names
@@ -55,12 +72,20 @@ colnames(group) <- c("ID", "Corrida", "Crucero", "Estación", "Marcador", "Tipo"
 group$Transecto <- substr(group$Estación, 1, 1)
 mgroup = sample_data(group)
 
+# # # # # #
+# load biomformat (after lulu)
+library(biomformat)
 
-# load biom
+biom.file = list.files(obj.dir, full.names = TRUE, pattern = 'lulu_cooccurence_0.95_min_match_98_min_ratio_1.biom')
+mbiom <- read_biom(biom.file[1])
+dat <- as(biom_data(mbiom) "matrix")
+taxonomy = observation_metadata(biom)
 
-biom <- import_biom(mbiom[1])
+# # # # # #
 
-colnames(otu_table(biom)) <- rownames(mgroup) #caso especial de run13, comentar esta linea
+# biom <- import_biom(mbiom[1])
+
+colnames(otu_table(biom)) <- rownames(mgroup) #caso ESPECIAL de run13, comentar esta linea
 
 # and include sampledata
 if (identical(colnames(otu_table(biom)), rownames(mgroup))) { obj <- merge_phyloseq(biom, mgroup) 
@@ -74,7 +99,7 @@ if (identical(colnames(otu_table(biom)), rownames(mgroup))) { obj <- merge_phylo
 
 library(ape)
 
-mtree <- list.files(biom.dir, full.names = TRUE, pattern = "*.rep.treein.tre")
+mtree <- list.files(obj.dir, full.names = TRUE, pattern = "*.rep.treein.tre")
 
 t = read.tree(mtree[1])
 
@@ -84,6 +109,99 @@ if (identical(taxa_names(obj), sort(t$tip.label))) { phyloseq = merge_phyloseq(o
 
 # parsing colnames (rename ranks)  and rownames (for taxa==OTU names, TRUE)
 
+```
+
+```{lulu insertion here}
+```
+
+```{r Parsing Undetermined y Unknown levels}
+#Rank <- c("Kingdom", "Phylum", "Class", "Order", 
+ #                  			 "Family", "Genus", "Species")
+Rank <- c("Reino", "Filo", "Clase", "Orden", 
+                   			 "Familia", "Genero", "Especie")
+
+colnames(tax_table(phyloseq)) <- c(Rank, "Extra1")
+tax_table(phyloseq)[,8] <- 7
+
+for(i in ncol(tax_table(phyloseq)):1) {
+    # it will replace 'unknown_unclassified' terms for 'Unknown' term
+    tax_table(phyloseq)[,i] <- sub("unknown", "Unknown", tax_table(phyloseq)[,i])
+    tax_table(phyloseq)[,i] <- sub("unknown.*", "Unknown", tax_table(phyloseq)[,i])
+#   Sub taxa with *nclassified with Undetermined term
+    tax_table(phyloseq)[,i] <- sub(".*nclassified.*", 
+    "Undetermined", tax_table(phyloseq)[,i], perl=TRUE)
+#   Instead of Undetermined classified , use NA
+    tax_table(phyloseq)[,i][grep("Undetermined|Unknown|NA",
+                        tax_table(phyloseq)[,i], perl=TRUE)] <- NA
+#   Define max resolution per taxa    
+    tax_table(phyloseq)[is.na(tax_table(phyloseq)[,i]), "Extra1"] <- i-1
+}
+
+
+# remove un-assign (not sporious) taxa or, implement LULU first :p
+phyloseq = subset_taxa(phyloseq, Reino!="NA")
+
+```
+
+
+```{r ktone distribution}
+plot(density(log10(taxa_sums(phyloseq))))
+
+library(data.table)
+
+ktone.dat <- data.table(taxa_sums(phyloseq))
+names(ktone.dat) <- 'Size'
+
+# ktone.dat[ktone.dat$Size == 1,'Ktone'] <- 'Single'
+ktone.dat[(Size == 1), Ktone := "Single"]
+ktone.dat[(Size == 2), Ktone := "Double"]
+ktone.dat[(Size == 3), Ktone := "Tripe"]
+ktone.dat[(Size == 4), Ktone := "Tetra"]
+ktone.dat[(Size > 4), Ktone := "Further"]
+
+levels(ktone.dat$Ktone) <- c('Single', 'Double', 'Tripe', 'Tetra','Further')
+
+# Ordering by ktone factor
+ktone.dat$Ktone <- factor(ktone.dat$Ktone, levels = levels(ktone.dat$Ktone)) 
+
+ggplot(data = ktone.dat, aes(x=log2(Size), order = -as.numeric(Size))) + 
+    geom_histogram(aes(fill=Ktone), alpha = 0.8, bins = 30) + 
+    scale_fill_brewer(palette = "Set1")
+
+ggplot(data=ktone.dat, 
+      aes(x=Size, y=Ktone, color=Ktone)) +
+      geom_point(aes(size=log10(Size))) +
+      scale_color_brewer(palette = "Set1")
+# or radar chart
+
+# ktone.dat <- ktone.dat[sort(ktone.dat$Ktone),]
+
+
+```
+
+```{r preprocessing count-matrix}
+# preprocessing count-matrix
+
+# head(as(otu_table(phyloseq), "matrix")[,26]) # compare it ...
+# head(as(otu_table(phyloseq), "matrix")[,26] > 2)  # with this .. then:
+# length(apply(as(otu_table(phyloseq), "matrix") > 2, MARGIN = 1, sum))
+set <- 'D04' # D03, M03
+physeq <- subset_samples(phyloseq, Crucero == set) # Subset_samples by cruice
+physeq <- prune_taxa(taxa_sums(physeq) > 0, physeq) # Removing any taxa of abundance of zero
+
+keepTaxa = apply(X = as(otu_table(physeq), "matrix") > 0, # Removing any abundance of zero
+                 MARGIN = 1, FUN = sum) > 2 # Remove taxa not k greater than k (2L) 
+
+# table(keepTaxa)
+clean.phyloseq = prune_taxa(keepTaxa, physeq)
+```
+
+```{r save.table}
+save <- psmelt(clean.phyloseq)
+
+write.csv(save[,-c(4,18)], file = paste0(path,"/",set, "_taxones_identificados.csv"),
+          row.names = FALSE, quote = FALSE)
+rm(save)
 ```
 
 Los datos provienen de muestras obtenidas en `r nsamp` estaciones que cubrió el crucero exploratorio `r set`. Para cada muestra se generaron amplicones de la región v9 del gen ribosomal 18S. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 150 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del CICESE-CIGOM). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
@@ -96,6 +214,35 @@ El resumen del análisis se divide en tres etapas principales:
 
 El análisis metagenómico se llevó a cabo en el cluster de cómputo OMICA-CICESE mediante el programa mothur version 1.39.5. La tubería del análisis fue adaptada de la sugerida por Schloss et al. 2013 para amplicones de la región v9 del gen 18S rRNA secuenciados por Illumina.
 
+## Indice de Figuras
+
+* Figura 1. Promedio del puntaje de calidad Phred a lo largo de las lecturas de las bibliotecas. Bibliotecas Forward (F) y Reverse (R).
+
+* Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (F) y Reverse (R).
+
+* Figura 3. Distribución de la máxima resolución taxonómica obtenida. El panel de figuras muestra la separación de los reinos asignados a los OTUs generados. El resto del análisis considera únicamente el reino Animal el cual, además, contribuye al mayor número de asignaciones con mayor alcance en la resolución. 
+
+* Figura 4. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.
+
+* Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.
+
+* Figura 6. Composición de las comunidades a nivel Orden a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.
+
+* Figura 7. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Abundancia relativa de los taxones con varianza mayor a  1e-5; respectivamente, se indican sus rangos Filos y Clase correspondientes en las columnas del panel derecho.
+
+* Figura 8. Distribución de la máxima resolución taxonómica obtenida. El panel de figuras muestra la separación de los reinos asignados a los OTUs generados. El resto del análisis considera únicamente el reino Animal el cual, además, contribuye al mayor número de OTUs asignados
+
+* Figura 9. Curva de rarefacción por muestra. Se presenta el número de OTUs a lo largo de las estaciones en relación al número de secuencias. Se traza con una línea vertical punteada el tamaño mínimo de la muestra.
+
+* Figura 10. Diversidad alfa por estación. Se muestran los índices de diversidad alfa de Shannon e Inverso de Simpson calculados para la comunidad de zooplancton cada estación del crucero.
+
+* Figura 11. PCoA. Componentes principales (Distancias Jaccard).
+
+* Figura 12. Familias más abundantes a lo largo de todas las estaciones. Se muestran aquellos filos que representan al menos 10% de la abundancia total por muestra.
+
+* Figura 13. Abundancia relativa a nivel Familia (100% es el total de OTUs en la Clase Hexanauplia).
+
+* Figura 14. Filogenia de OTUs asociados a la  clase Hexanauplia. Las secuencias representantes de los OTUs asignados a la clase Hexanauplia fueron alineadas y la filogenia fue construída por Neighbor Joining. Se muestra con diferente color la asociación de los OTUs a nivel Familia.
 
 ### Pre-procesamiento y alineamiento de lecturas
 
@@ -199,123 +346,18 @@ seqs_barplot <- ggplot(plotdat_m, aes(x=Estación, y=Secuencias, fill=Etapa)) +
 
 print(seqs_barplot)
 
-# ggsave(seqs_barplot, filename = "figura3.png", dpi = 100) # or save it
-
-
-# library(ggpubr)
-# ggbarplot(reshape::melt(plotdat), x = "Estación", y = "value",
-#           fill = "variable",           # change fill color by mpg_level
-#           color = "variable",            # Set bar border colors to white
-#           palette = "Paired",            # jco journal color palett. see ?ggpar
-#           x.text.angle = 90,          # Rotate vertically x axis texts
-#           merge = TRUE,
-#           width = 0.7,
-#           yscale = "none",
-#           ylab = "Numero de secuencias",
-#           legend.title = "Secuencias",
-#           rotate = TRUE,
-#           ggtheme = theme_minimal(),
-#           position = position_identity()
-#           )
-# or
-
-# library(googleVis)
-# SteppedArea <- googleVis::gvisSteppedAreaChart(plotdat, xvar="Estación", yvar=c("Total", "Buena Calidad", "Alineamiento", "Clasificacion"), options=list(isStacked=TRUE, vAxis.slantedTextAngle = 90, colors="['#A6CEE3', '#1F78B4', '#B2DF8A', '#33A02C']")
-#                                     )
-# 
-# plot(SteppedArea)
-
 ```
+
+
+El número de secuencias para cada muestra individual fue diferente. Con el objetivo de comparar las diferencias entre las muestras, se estandarizó la matriz de distribución de taxones (eg. OTUs) en abundancia relativa (RA) basada en la siguiente ecuación: $$RA_{ij} = \frac{S_{ij}}{\sum_{j=1}^{n} S_{ij}}*100$$
+
+Donde $i$ es la posición de la muestra (1 a $m$), $j$ es la posición del taxon (1 a $n$) y  $S_{ij}$ es el número de secuencias en la muestra i y el taxón de la posición $j$. $\sum_{j=1}^{n} S_{ij}$ equivale a la sumatoria de las secuencias en la muestra $i$. Aquí m equivale a `r nsamples(physeq)` muestras y $n$ equivale a `r ntaxa(physeq)` taxones.
 
 ## Estimación de los índices de diversidad y presentación gráfica de resultados.
 
 La estimación de los índices de diversidad y la generación de representaciones gráficas de los resultados del análisis bioinformático, se realizó en R v3.4 (R Core Team, 2017) utilizando diferentes paquetes especializados en análisis de datos ecológicos y gráficos.
-Para obtener una perspectiva biológica de la las comunidades planctónicas se calculó la abundancia relativa de los OTUs colapsados a diferentes niveles taxonómicos. El siguiente grupo de figuras (Figuras 4 a 7) muestra en mapas de calor la composición de las comunidades de zooplancton por estación al  rango taxonómico indicado (Filo, Clase, Orden y Familia). Se muestran únicamente aquellos taxones cuya abundancia relativa en el set supera el porcentaje señalado. Para una mejor visualización  en la figura correspondiente al rango Familia, los organismos se muestran agrupados por su  Filos y Clase correspondientes, en las columnas del panel derecho (Figura 7).
 
-Aquellos taxones denominados como ‘unclassified’ denotan que no fue posible asignar un nombre al rango taxonómico actual y en cambio indican el nombre del último rango asignado posible. Esta tendencia se acentúa conforme se baja de rango taxonómico (sentido Reino a Especie) y depende del grupo de organismos evaluado.
-
-```{r Parsing Undetermined y Unknown levels}
-#Rank <- c("Kingdom", "Phylum", "Class", "Order", 
- #                  			 "Family", "Genus", "Species")
-Rank <- c("Reino", "Filo", "Clase", "Orden", 
-                   			 "Familia", "Genero", "Especie")
-
-colnames(tax_table(phyloseq)) <- c(Rank, "Extra1")
-tax_table(phyloseq)[,8] <- 7
-
-for(i in ncol(tax_table(phyloseq)):1) {
-    # it will replace 'unknown_unclassified' terms for 'Unknown' term
-    tax_table(phyloseq)[,i] <- sub("unknown", "Unknown", tax_table(phyloseq)[,i])
-    tax_table(phyloseq)[,i] <- sub("unknown.*", "Unknown", tax_table(phyloseq)[,i])
-#   Sub taxa with *nclassified with Undetermined term
-    tax_table(phyloseq)[,i] <- sub(".*nclassified.*", 
-    "Undetermined", tax_table(phyloseq)[,i], perl=TRUE)
-#   Instead of Undetermined classified , use NA
-    tax_table(phyloseq)[,i][grep("Undetermined|Unknown|NA",
-                        tax_table(phyloseq)[,i], perl=TRUE)] <- NA
-#   Define max resolution per taxa    
-    tax_table(phyloseq)[is.na(tax_table(phyloseq)[,i]), "Extra1"] <- i-1
-}
-
-
-# remove un-assign (not sporious) taxa
-phyloseq = subset_taxa(phyloseq, Reino!="NA")
-
-```
-
-
-```{r Figura x. Resolution, fig.align = "center", fig.cap = "Figura x. Distribución de la máxima resolución taxonómica obtenida. El panel de figuras muestra la separación de los reinos asignados a los OTUs generados. El resto del análisis considera únicamente el reino Animal el cual, además, contribuye al mayor número de OTUs asignados."}
-# plot(density(as.numeric(tax_table(phyloseq)[,'Extra1'])))
-
-tbl <- data.frame(tax_table(phyloseq), stringsAsFactors = FALSE)
-tbl$Extra1 <- as.numeric(tbl$Extra1)
-
-# Elaborar una columna con el taxon de sum maxima resolucion considerando la columna Extra que tiene la posicion del ultimo taxon con mayor resolucion a lo largo de la matriz:
-# convendria usar el apply para hacer esto en una linea (tbl$Taxa <- apply())
-# tbl[nrow(tbl), j[nrow(tbl)]] # retrive the last position, then: 
-# for (i in 1:nrow(tbl)) {
-#   tbl$Taxa[i] <- tbl[i, j[i]]
-# }
-
-library(ggplot2)
-
-# Basic density 
-
-p <- ggplot(tbl, aes(y=..count.., x=Extra1, fill = Reino)) + 
-  geom_density(alpha=.7) + scale_fill_brewer(palette = "Paired", direction = -1) +
-  # Qualitative Accent, Dark2, Paired, Pastel1, Pastel2, Set1, Set2, Set3
-  scale_x_continuous(name = 'Distribución de la resolución', 
-                   breaks=as.vector(unique(sort(tbl$Extra1))), 
-                   labels = Rank) + labs(y = 'Densidad de taxones')
-
-p + facet_wrap(Reino ~ ., scales = "free_y")
-```
-
-
-```{r preprocessing count-matrix}
-# preprocessing count-matrix
-
-# head(as(otu_table(phyloseq), "matrix")[,26]) # compare it ...
-# head(as(otu_table(phyloseq), "matrix")[,26] > 2)  # with this .. then:
-# length(apply(as(otu_table(phyloseq), "matrix") > 2, MARGIN = 1, sum))
-
-physeq <- subset_samples(phyloseq, Crucero == set) # Subset_samples by cruice
-physeq <- prune_taxa(taxa_sums(physeq) > 0, physeq) # Removing any taxa of abundance of zero
-
-keepTaxa = apply(X = as(otu_table(physeq), "matrix") > 0, # Removing any abundance of zero
-                 MARGIN = 1, FUN = sum) > 2 # Remove taxa not k greater than k (2L) 
-
-# table(keepTaxa)
-clean.phyloseq = prune_taxa(keepTaxa, physeq)
-```
-
-```{r save.table}
-save <- psmelt(clean.phyloseq)
-
-write.csv(save[,-c(4,18)], file = paste0(path,"/",set, "_taxones_identificados.csv"),
-          row.names = FALSE, quote = FALSE)
-rm(save)
-```
+Para obtener una perspectiva biológica de la las comunidades planctónicas se aglomero la abundancia relativa de los OTUs colapsados a diferentes niveles taxonómicos. El siguiente grupo de figuras (Figuras 4 a 7) muestra en mapas de calor la composición de las comunidades de zooplancton por estación al rango taxonómico indicado (Filo, Clase, Orden y Familia). Se muestran únicamente aquellos taxones cuya abundancia relativa en el set supera el porcentaje señalado. Para una mejor visualización  en la figura correspondiente al rango Familia, los organismos se muestran agrupados por su  Filos y Clase correspondientes, en las columnas del panel derecho (Figura 7). Además, la figura 12 se observan los géneros abundantes a lo largo de las muestras (ie. que representan al menos 10% de la abundancia total por muestra).
 
 
 ```{r get Animalia}
@@ -325,6 +367,7 @@ Animalia <- subset_taxa(physeq, Reino == "Animalia")
 Animalia <- prune_taxa(taxa_sums(Animalia) > 0, Animalia)
 ```
 
+Aquellos taxones denominados como ‘unclassified’ denotan que no fue posible asignar un nombre al rango taxonómico actual y en cambio indican el nombre del último rango asignado posible. Esta tendencia se acentúa conforme se baja de rango taxonómico (sentido Reino a Especie) y depende del grupo de organismos evaluado. La Figura 8 muestra la distribución de la máxima resolución taxonómica obtenida para cada uno de los niveles taxonomicos. En esta figura, podemos observar que el número de secuencias predominantes pertenecen al reino Animalia, en vía del siguiente análisis se utilizó el subconjunto de datos de este reino que corresponde a `r ntaxa(Animalia)` OTUs.
 
 ```{r Transform.sample.counts}
 Animalia.restore <-  Animalia
@@ -349,8 +392,52 @@ plot_heatmap(Phylum,
         labs(fill = "Abundancia\nRelativa (%)")
 ```
 
+```{r SUPERHEAT, eval = FALSE, echo = FALSE}
+library(superheat)
 
-```{r Figura 5. Heatmap.Class, fig.align = "center", fig.cap = "Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.", fig.width=8}
+Phylum <-tax_glom(Animalia.restore, taxrank="Filo")
+
+heat.tbl <- otu_table(Phylum)
+rownames(heat.tbl) <- tax_table(Phylum)[,2]
+colnames(heat.tbl) <- sample_data(Phylum)$`Estación`
+rowSums(heat.tbl)
+
+
+# apply(heat.tbl, 1, function(x) (x  * sum(x) ))
+
+superheat(heat.tbl, 
+          # scale the variables/columns
+          scale = FALSE,
+          # change the color
+          heat.pal = c( "#FFFFD9", "#081D58"),
+          # change the color of the labels
+          left.label.col = "white",
+          # change the size of the label text
+          left.label.text.size = 3,
+          # change the angle of the label text
+          bottom.label.text.angle = 90,
+          bottom.label.text.size = 3,
+          bottom.label.text.alignment = "right",
+          bottom.label.col = "white",
+          # add barplot next to the rows
+          yr = log10(rowSums(heat.tbl)),
+          yr.axis.name = "Numero de Secuencias\n(Log10)",
+          yr.plot.type = "bar",
+          # set bar colors
+          yr.bar.col = "black",
+          # Titles
+          column.title = 'Muestras',
+          column.title.size = 4,
+          row.title = 'Taxones',
+          row.title.size = 4,
+          # remove the grid
+          grid.hline = FALSE,
+          grid.vline = FALSE
+          )
+# great idea, so lets modify and reply the colors and labels from the original heatmap.
+```
+
+```{r Figura 5. Heatmap.Class, fig.align = "center", fig.cap = "Figura 5. Composición de las comunidades al nivel Clase a lo largo de las estaciones. Abundancia relativa de los taxones en la comunidad.", fig.width=8, out.width='\\textwidth'}
 Class <-tax_glom(Animalia, taxrank="Clase")
 
 plot_heatmap(Class,
@@ -377,19 +464,26 @@ plot_heatmap(Order,
 
 ```
 
+```{r Figura 7. Heatmap.Fa , fig.align = "center", fig.cap="Figura 7. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Abundancia relativa de los taxones con varianza mayor a  1e-5; respectivamente, se indican sus rangos Filos y Clase correspondientes en las columnas del panel derecho.", fig.width = 8, fig.height = 7}
 
-```{r Figura 7. Heatmap.Fa , fig.align = "center", fig.cap="Figura 7. Composición de las comunidades a nivel Familia a lo largo de las estaciones. Abundancia relativa de los taxones. Respectivamente, se indican sus rangos Filos y Clase correspondientes en las columnas del panel derecho.", fig.width = 8, fig.height = 7}
+physeq2 <- transform_sample_counts(Animalia.restore, function(x) (x / sum (x) ))
+physeq2 <- phyloseq::filter_taxa(physeq2, function(x) var(x) > 1e-5, TRUE)
+physeq2 <- transform_sample_counts(physeq2, function(x) x * 100 ) 
 
-Family <-tax_glom(Animalia, taxrank="Familia")
+Family <-tax_glom(physeq2, taxrank="Familia")
+
+theme_set(theme_classic())
 
 h <- plot_heatmap(Family, 
                   #"NMDS", "bray", 
              sample.label = "Estación", 
              sample.order = "Transecto",
              taxa.label = "Familia",
-             na.value = "white", trans = NULL,
-             low = "#FFFFD9", high = "#081D58") +
-        labs(fill = "Abundancia\nRelativa (%)")
+             na.value = "white", trans = NULL, 
+            low = "#FFFFD9", high = "#081D58") +
+        labs(fill = "Abundancia\nRelativa (%)") 
+
+# h + scale_fill_gradient(low = "#FFFFD9", high = "#081D58", limits=c(0,100))
 
 h + facet_grid(Filo+Clase ~ ., 
                scales = "free", space = "free" 
@@ -400,12 +494,37 @@ h + facet_grid(Filo+Clase ~ .,
                         angle = 0, 
                         size = 5),
   strip.background = element_rect(colour = "black", 
-                                  fill = "transparent",
+                                  fill = "ghostwhite",
                                   size = 0.1),
-  panel.spacing = unit(0.01, "lines")
-       ) +
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  panel.grid = element_blank(),
+  panel.spacing = unit(0,"line")) +
   labs(fill = "Abundancia\nRelativa (%)")
 ```
+
+
+```{r Figura 8. Resolution, fig.align = "center", fig.cap = "Figura 8. Distribución de la máxima resolución taxonómica obtenida. El panel de figuras muestra la separación de los reinos asignados a los OTUs generados. El resto del análisis considera únicamente el reino Animal el cual, además, contribuye al mayor número de OTUs asignados."}
+# plot(density(as.numeric(tax_table(phyloseq)[,'Extra1'])))
+
+tbl <- data.frame(tax_table(phyloseq), stringsAsFactors = FALSE)
+tbl$Extra1 <- as.numeric(tbl$Extra1)
+
+library(ggplot2)
+
+# Basic density 
+
+p <- ggplot(tbl, aes(y=..count.., x=Extra1, fill = Reino)) + 
+  geom_density(alpha=.7) + scale_fill_brewer(palette = "Paired", direction = -1) +
+  # Qualitative Accent, Dark2, Paired, Pastel1, Pastel2, Set1, Set2, Set3
+  scale_x_continuous(name = 'Resolución', 
+                   breaks=as.vector(unique(sort(tbl$Extra1))), 
+                   labels = Rank) + labs(y = 'Densidad de taxones')
+
+p + facet_wrap(Reino ~ ., scales = "free_y") + 
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))
+```
+
 
 
 ```{r Funcion Rarefaccion}
@@ -479,15 +598,11 @@ ggrare2 <- function (physeq_object, step = 10, label = NULL, color = NULL,
 }
 ```
 
-Se realizó una curva de rarefacción para evaluar el esfuerzo de secuenciación por estación (Figura 8). Se observó que en la mayoria de las estaciones el número de OTUs puede incrementar aun más si se dedica un mayor esfuerzo de secuenciación.
+Se realizó una curva de rarefacción para evaluar el esfuerzo de secuenciación por estación (Figura 9). Se observó que en la mayoria de las estaciones el número de OTUs puede incrementar aun más si se dedica un mayor esfuerzo de secuenciación.
 
-```{r Figura 8. Rarefaccion, echo = FALSE, fig.align = "center", fig.cap = "Figura 8. Curva de rarefacción por muestra. Se presenta el número de OTUs a lo largo de las estaciones en relación al número de secuencias. Se traza con una línea vertical punteada el tamaño mínimo de la muestra.",  out.width='\\textwidth', fig.width = 7, fig.height = 4}
+```{r Figura 9. Rarefaccion, echo = FALSE, fig.align = "center", fig.cap = "Figura 9. Curva de rarefacción por muestra. Se presenta el número de OTUs a lo largo de las estaciones en relación al número de secuencias. Se traza con una línea vertical punteada el tamaño mínimo de la muestra.",  out.width='\\textwidth', fig.width = 7, fig.height = 4}
 # https://github.com/gauravsk/ranacapa/
 # and https://github.com/joey711/phyloseq/issues/143
-
-library(ranacapa)
-theme_set(theme_classic())
-
 
 library(ranacapa)
 theme_set(theme_classic())
@@ -506,7 +621,7 @@ rrplot +
   geom_vline(xintercept = minsample, linetype = "dashed")
 ```
 
-```{r Figura 9. Div. alfa, fig.align = "center", fig.cap = "Figura 9. Diversidad alfa por estación. Se muestran los índices de diversidad alfa de Shannon e Inverso de Simpson calculados para la comunidad de zooplancton cada estación del crucero XIXIMI-06.", fig.width = 7, fig.height = 5}
+```{r Figura 10. Div. alfa, fig.align = "center", fig.cap = "Figura 10. Diversidad alfa por estación. Se muestran los índices de diversidad alfa de Shannon e Inverso de Simpson calculados para la comunidad de zooplancton cada estación del crucero.", fig.width = 7, fig.height = 5}
 
 library(RColorBrewer)
 getPalette = colorRampPalette(brewer.pal(9, "Set1"))
@@ -524,7 +639,7 @@ prichnes + scale_color_manual(values=getPalette(n)) +
  
 ```
 
-La diversidad alfa se obtuvo a través del cálculo de los índices de Shannon e Inverso de Simpson en cada estación (Figura 9). En ambos índices se observa que la mayoría de las estaciones se encuentra en un rango de diversidad definido pero sobresalen (contienen mayor diversidad) las siguientes (tabla 1)
+La diversidad alfa se obtuvo a través del cálculo de los índices de Shannon e Inverso de Simpson en cada estación (Figura 10). En ambos índices se observa que la mayoría de las estaciones se encuentra en un rango de diversidad definido pero sobresalen (contienen mayor diversidad) las siguientes (tabla 1)
 
 ```{r Tabla 1. Indices de diversidad}
 library(phyloseq)
@@ -549,9 +664,9 @@ knitr::kable(save, caption = 'Tabla 1')
 ```
 
 
-La diferencia en composición de la comunidad de zooplancton entre estaciones se evaluó mediante un análisis de coordenadas principales usando una matriz de distancias Jaccard. En la figura 10 se observa que no hay formación de grupos definidos de estaciones indicando comunidades similares.
+La diferencia en composición de la comunidad de zooplancton entre estaciones se evaluó mediante un análisis de coordenadas principales usando una matriz de distancias Jaccard. En la figura 11 se observa que no hay formación de grupos definidos de estaciones indicando comunidades similares.
 
-```{r Figura 10. PCoA, fig.align = "center", fig.cap = "Figura 10. PCoA. Componentes principales (Distancias Jaccard)."}
+```{r Figura 11. PCoA, fig.align = "center", fig.cap = "Figura 11. PCoA. Componentes principales (Distancias Jaccard)."}
 
 physeq.rr <- transform_sample_counts(physeq, function(x) 1E6 * x/sum(x))
 iDist <- phyloseq::distance(Animalia, method="jaccard") # Jaccard
@@ -565,7 +680,7 @@ p + geom_text(aes(label = Estación, label.size = 0.25)) + theme(legend.position
 
 ```
 
-```{r Figura 11, fig.align = "center", fig.cap = "Figura 11. Filos mas abundantes a lo largo de todas las estaciones. Se muestran aquellos filos que representan almenos 10% de la abundancia total por muestra."}
+```{r Figura 12 Familias abundantes, fig.align = "center", fig.cap = "Figura 12. Familias mas abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan almenos 10% de la abundancia total por muestra."}
 
 # also try: https://github.com/joey711/phyloseq/issues/494
 library(data.table)
@@ -663,7 +778,7 @@ ggdotchart(gp, x = "Estación", y ="Transecto",
 
 ## Visualizacion de hexanauplia
 
-Arthropoda es el filo más abundante (figura 4 y 11) y consecutivamente Haxanauplia es la Clase más abundante (Figura 5). Para visualizar este grupo de forma independiente se generó un grafico de abundancia relativa a nivel familia (100% es el total de OTUs en la Clase Hexanauplia) [Figura 13]. Se observa la prevalencia de la familia Calanidae en la mayoría de las estaciones con excepción del transecto H. En el grupo de estaciones Y ubicadas en el canal de Yucatán, se observa la mayor proporción de OTUs sin asignación. 
+_Arthropoda_ es el filo más abundante (figura 4) y consecutivamente _Haxanauplia_ es la Clase más abundante (Figura 5). Para visualizar este grupo de forma independiente se generó un grafico de abundancia relativa a nivel familia (100% es el total de OTUs en la Clase Hexanauplia) [Figura 13]. Se observa la prevalencia de la familia Calanidae en la mayoría de las estaciones con excepción del transecto H. En el grupo de estaciones Y ubicadas en el canal de Yucatán, se observa la mayor proporción de OTUs sin asignación. 
 
 En el dendograma de la Figura 14 se observa que las secuencias de los OTUs asignados a las diferentes familas de la Clase Hexanauplia no forman grupos definidos (no son monofiléticos).
 
@@ -678,7 +793,7 @@ Hx.cls <- transform_sample_counts(Hx.cls, function(x) (x / sum (x) ))
 Hx.cls <- transform_sample_counts(Hx.cls, function(x) x * 100 ) 
 ```
 
-```{r Figura 12. Hexanauplia, fig.align = "center", fig.cap="Figura 12. Abundancia relativa a nivel familia (100% es el total de OTUs en la Clase Hexanauplia).", fig.width = 8}
+```{r Figura 13. Hexanauplia, fig.align = "center", fig.cap="Figura 13. Abundancia relativa a nivel familia (100% es el total de OTUs en la Clase Hexanauplia).", fig.width=12, fig.height=8}
 
 # and interpolating large color pallete
 # https://www.r-bloggers.com/how-to-expand-color-palette-with-ggplot-and-rcolorbrewer/
@@ -697,7 +812,7 @@ plot_bar(Hx.cls, "Estación", fill="Familia") +
 ```
 
 
-```{r Figura 13. Arbol Hexanauplia, fig.align = "center", fig.cap="Figura 13. Filogenia de OTUs asociados a la  clase Hexanauplia. Las secuencias representantes de los OTUs asignados a la clase Hexanauplia fueron alineadas y la filogenia fue construída por Neighbor Joining. Se muestra con diferente color la asociación de los OTUs a nivel Familia.",  fig.width = 7}
+```{r Figura 14. Arbol Hexanauplia, fig.align = "center", fig.cap="Figura 14. Filogenia de OTUs asociados a la  clase Hexanauplia. Las secuencias representantes de los OTUs asignados a la clase Hexanauplia fueron alineadas y la filogenia fue construída por Neighbor Joining. Se muestra con diferente color la asociación de los OTUs a nivel Familia.", fig.width=12, fig.height=8}
 
 # plot_tree(Hx.cls, shape="Order", color="Estación", ladderize="left") 
 library(dplyr)
