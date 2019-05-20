@@ -593,7 +593,7 @@ h + facet_grid(Filo+Clase ~ .,
 ```
 
 
-```{r Figura 10. Boxplot Genus, fig.align = "center", fig.cap = "Géneros más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra.", fig.width = 8, fig.height = 7}
+```{r Figura 10. Boxplot species, fig.align = "center", fig.cap = "Especies más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra.", fig.width = 8, fig.height = 7}
 
 # also try: https://github.com/joey711/phyloseq/issues/494
 
@@ -897,6 +897,7 @@ Para la construcción del árbol, se alinearon los amplicones para la construyó
 
 ```{r Figura 14. Peces, fig.align = "center", fig.cap = "Figura 14. Taxones (nivel Especie) con varianza mayor a 1e-5 asignados a la Clase de Actinoperigy.", fig.width = 7, fig.height = 5}
 library(phyloseq)
+
 actii = subset_taxa(physeq2, Clase == "Actinopterygii") #  "Actinopteri"
 actii = prune_taxa(taxa_sums(actii) > 0, actii)
 actii.glm = tax_glom(actii, taxrank="Especie")
