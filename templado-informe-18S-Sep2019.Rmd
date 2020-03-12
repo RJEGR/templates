@@ -1,0 +1,710 @@
+---
+title: Análisis bioinformático de la diversidad de zooplancton en la zona epipelágica
+  del Golfo de México
+author: "Grupo Bioinformática"
+date: "Informe `r format(Sys.Date())`"
+output:
+  # pdf_document: default
+  word_document: default
+    
+---
+<!-- COMENTARIOS del flujo de analisis -->
+<!-- Se cargan los datos (árbol, metadatos y archivo biom (cons.taxonomy + shared.file)  -->
+<!-- Se procesa la taxonomía para re-etiquetar Undetermined y Unknown niveles a NA  -->
+<!-- Se genera el objeto phyloseq de la siguiente manera: -->
+<!-- phyloseq = subset_taxa(phyloseq, Reino!="NA") #  remove un-assign OTUs -->
+<!-- physeq = Subset_samples by cruise (subset_samples) -->
+<!-- physeq = Removing any taxa of abundance of zero -->
+<!-- clean.phyloseq = Remove taxa not k greater than k (2L)  -->
+<!-- write.table de taxones_identificados.csv -->
+<!-- Animalia <- subset_taxa(physeq, Reino == "Animalia") -->
+<!-- Animalia.restore <-  Animalia # to restore any analysis from here -->
+<!-- Animalia <- transform_sample_counts(Animalia, function(x) (x / sum (x) )) -->
+<!-- Usamos el objeto Animalia para el resto de las tablas, figuras y análisis de diversidad: -->
+
+
+
+
+```{r setup, include=FALSE}
+# Setting global option in all the chunks-code
+knitr::opts_chunk$set(warning=FALSE, echo = FALSE, message = FALSE, dpi=300)
+rm(list=ls())
+```
+
+## Generalidades del análisis
+
+```{r paths}
+path <- c("/Users/cigom/metagenomics/18S_MULTIRUN_XIXIMIS/")
+
+url <- 'https://raw.githubusercontent.com/RJEGR/metagenomics/master/readtx.R'
+source(url)
+
+Ranks <- c("Reino", "Filo", "Clase", "Orden", "Familia", "Genero", "Especie")
+```
+
+```{r load data}
+library(phyloseq)
+# Path files for processing within phyloseq
+
+obj.dir <- path
+
+setwd(obj.dir)
+
+# # # # # #
+# load biomformat (after lulu)
+library(biomformat)
+
+biom.file_x4_5 = list.files(obj.dir, full.names = TRUE, pattern = 'x4x5.biom')
+biom.file_6= list.files(obj.dir, full.names = TRUE, pattern = '*.0.03.biom')
+
+mbiom_4_5 <- read_biom(biom.file_x4_5[1])
+mbiom_6 <- read_biom(biom.file_6[1])
+
+dim(dat_1 <- data.frame(as(biom_data(mbiom_4_5), "matrix")))
+dim(dat_2 <- data.frame(as(biom_data(mbiom_6), "matrix")))
+
+dim(tax_4_5_ <- data.frame(do.call(rbind, observation_metadata(mbiom_4_5)))[,1:7])
+dim(tax_6_ <- data.frame(do.call(rbind, observation_metadata(mbiom_6)))[,1:7])
+
+tax_4_5 <- mutate_all(data.frame(tax_4_5_), funs(str_replace_all(., c(".+_unclassified"=NA_character_, "_"=" ", "Unclassified"=NA_character_, "NA"=NA_character_, "100" = NA_character_))))
+
+tax_6 <- mutate_all(data.frame(tax_6_), funs(str_replace_all(., c(".+_unclassified"=NA_character_, "_"=" ", "Unclassified"=NA_character_, "NA"=NA_character_, "100" = NA_character_))))
+
+# replace if is numeric!
+
+rownames(tax_4_5) <- rownames(tax_4_5_)
+rownames(tax_6) <- rownames(tax_6_)
+
+colnames(tax_4_5) <- Ranks
+colnames(tax_6) <- Ranks
+  
+tax_4_5[is.na(tax_4_5)] <- 'Undetermined_R'
+tax_6[is.na(tax_6)] <- 'Undetermined_R'
+
+# solo se puede hacer el parse de numero de muestras iguales, x4=x5=x6
+# dat <- data.frame(dat)
+
+```
+
+```{r Construct phyloseq.obj, echo = FALSE}
+# make metadata
+makeMT <- function(dat) {
+  samples <- names(data.frame(dat))
+  run <- sapply(strsplit(samples, "_"), `[`, 1)
+  cruise <- sapply(strsplit(samples, "_"), `[`, 2)
+  subject <- sapply(strsplit(samples, "_"), `[`, 3)
+  marker <- sapply(strsplit(samples, "_"), `[`, 4)
+  sample_type <- sapply(strsplit(samples, "_"), `[`, 5)
+  transect <- substr(subject,1,1)
+  
+  samples <- data.frame(Corrida = run, 
+                        Crucero=cruise, 
+                        Estación=subject, 
+                        Transecto=transect, 
+                        muestra=sample_type, 
+                        marcador =  marker)
+  
+  rownames(samples) <- names(data.frame(dat))
+  return(samples)
+  
+}
+
+samples1 <- makeMT(dat_1)
+samples2 <- makeMT(dat_2)
+
+# identical(names(dat),rownames(samples))
+# identical(rownames(dat), rownames(tax))
+
+# and parse
+# phyloseq = phyloseq(otu_table(dat, taxa_are_rows = TRUE), 
+#                     tax_table(as(tax, 'matrix')), 
+#                     sample_data(samples))
+
+```
+
+```{r ktone distribution}
+plot(density(log10(taxa_sums(phyloseq))))
+
+library(data.table)
+
+ktone.dat <- data.table(taxa_sums(phyloseq))
+names(ktone.dat) <- 'Size'
+
+# ktone.dat[ktone.dat$Size == 1,'Ktone'] <- 'Single'
+ktone.dat[(Size == 1), Ktone := "Single"]
+ktone.dat[(Size == 2), Ktone := "Double"]
+ktone.dat[(Size == 3), Ktone := "Tripe"]
+ktone.dat[(Size == 4), Ktone := "Tetra"]
+ktone.dat[(Size > 4), Ktone := "Further"]
+
+levels(ktone.dat$Ktone) <- c('Single', 'Double', 'Tripe', 'Tetra','Further')
+
+# Ordering by ktone factor
+ktone.dat$Ktone <- factor(ktone.dat$Ktone, levels = levels(ktone.dat$Ktone)) 
+
+ggplot(data = ktone.dat, aes(x=log2(Size), order = -as.numeric(Size))) + 
+    geom_histogram(aes(fill=Ktone), alpha = 0.8, bins = 30) + 
+    scale_fill_brewer(palette = "Set1") # + xlim(1, 20)
+
+ggplot(data=ktone.dat, 
+      aes(x=Size, y=Ktone, color=Ktone)) +
+      geom_point(aes(size=log10(Size))) +
+      scale_color_brewer(palette = "Set1")
+# or radar chart
+
+# ktone.dat <- ktone.dat[sort(ktone.dat$Ktone),]
+
+
+```
+
+## analyze only intersected samples
+
+```{r select intersected samples}
+samples <- rbind(samples1, samples2)
+
+samples$Estación <- as.character(samples$Estación)
+intersect <- data.frame(logical = table(samples$Estación) == 3)
+intersect$sample <- rownames(intersect)
+getSamples <- intersect[intersect$logical == TRUE,]$sample
+
+samples0 <- samples[samples$Estación %in% getSamples,]
+
+dim(dat_1_0 <- dat_1[names(dat_1) %in% rownames(samples0)])
+dim(dat_2_0 <- dat_2[names(dat_2) %in% rownames(samples0)])
+
+
+samples1_1 <- samples1[samples1$Estación %in% getSamples,]
+samples2_1 <- samples2[samples2$Estación %in% getSamples,]
+
+```
+
+```{r merge data}
+
+
+#dat <- cbind(dat_1_0, dat_2_0)
+#tax <- rbind(tax_4_5, tax_6)
+
+identical(names(dat_1_0),rownames(samples1_1))
+identical(rownames(dat_1_0), rownames(tax_4_5))
+
+phyloseq_1 = phyloseq(otu_table(dat_1_0, taxa_are_rows = TRUE), 
+                    tax_table(as(tax_4_5, 'matrix')), 
+                    sample_data(samples1))
+
+phyloseq_2 = phyloseq(otu_table(dat_2_0, taxa_are_rows = TRUE), 
+                    tax_table(as(tax_4_5, 'matrix')), 
+                    sample_data(samples2_1))
+
+#physeq0 <- prune_taxa(taxa_sums(phyloseq0) > 0, phyloseq0)
+```
+
+## Estimación de los índices de diversidad y presentación gráfica de resultados.
+
+```{r get Animalia and sample-count transformation}
+# And keep Animalia only:
+Animalia_1<- subset_taxa(phyloseq_1, Reino == "Animalia")
+Animalia_2 <- subset_taxa(phyloseq_2, Reino == "Animalia")
+# And removing any missing i.e. abundance of zero, somethis there're residuals
+Animalia_1 <- prune_taxa(taxa_sums(Animalia_1) > 0, Animalia_1)
+Animalia_2 <- prune_taxa(taxa_sums(Animalia_2) > 0, Animalia_2)
+
+#plot_bar(Animalia_1, x="Estación", facet_grid=~Crucero)
+
+# sample count transformation
+physeq2_1 <- transform_sample_counts(Animalia_1, function(x) (x / sum (x) ) * 100)
+physeq2_2 <- transform_sample_counts(Animalia_2, function(x) (x / sum (x) ) * 100)
+```
+
+```{r SUPERHEAT, eval = FALSE, echo = FALSE}
+library(superheat)
+
+Phylum <-tax_glom(Animalia.restore, taxrank="Filo")
+
+heat.tbl <- otu_table(Phylum)
+rownames(heat.tbl) <- tax_table(Phylum)[,2]
+colnames(heat.tbl) <- sample_data(Phylum)$`Estación`
+rowSums(heat.tbl)
+
+
+# apply(heat.tbl, 1, function(x) (x  * sum(x) ))
+
+superheat(heat.tbl, 
+          # scale the variables/columns
+          scale = FALSE,
+          # change the color
+          heat.pal = c( "#FFFFD9", "#081D58"),
+          # change the color of the labels
+          left.label.col = "white",
+          # change the size of the label text
+          left.label.text.size = 3,
+          # change the angle of the label text
+          bottom.label.text.angle = 90,
+          bottom.label.text.size = 3,
+          bottom.label.text.alignment = "right",
+          bottom.label.col = "white",
+          # add barplot next to the rows
+          yr = log10(rowSums(heat.tbl)),
+          yr.axis.name = "Numero de Secuencias\n(Log10)",
+          yr.plot.type = "bar",
+          # set bar colors
+          yr.bar.col = "black",
+          # Titles
+          column.title = 'Muestras',
+          column.title.size = 4,
+          row.title = 'Taxones',
+          row.title.size = 4,
+          # remove the grid
+          grid.hline = FALSE,
+          grid.vline = FALSE
+          )
+# great idea, so lets modify and reply the colors and labels from the original heatmap.
+```
+
+```{r insilico-trimming, echo = FALSE}
+newenv <- new.env()
+rdata.file <- list.files(path, pattern = multirunRD, full.names = TRUE)
+load(file=rdata.file, env=newenv)
+
+seqtab <- newenv$seqtab
+# seqtab.nochim <- newenv$seqtab.nochim
+
+require(dada2)
+require(ggplot2)
+
+len_df <- data.frame(nchar(getSequences(seqtab)))
+names(len_df) <- c("Length")
+len_df$Process <- "Nochim"
+
+
+targetLength <- seq(300,320)
+seqtab2.nochim <- seqtab.nochim[,nchar(colnames(seqtab.nochim)) %in% targetLength]
+
+
+table(nchar(getSequences(seqtab2.nochim)))
+
+# New distribution of Lengths
+newlen_df <- data.frame(nchar(getSequences(seqtab2.nochim)))
+names(newlen_df) <- c("Length")
+newlen_df$Process <- "trimmed"
+
+lens_df <- rbind(len_df, newlen_df)
+
+# plot
+
+lens_plot <- ggplot(lens_df, aes(Length, color=Process)) + 
+  geom_freqpoly(binwidth=1, size=1, alpha=0.7) +
+  scale_color_manual(values = c("#999999", "#E69F00"))+ 
+  labs(title=paste0(". ESVs length distribution")) +
+  theme_minimal() +
+  theme(legend.position = c(0.05,0.95),
+        legend.justification = c(0,1)) + geom_vline(xintercept = c(min(targetLength),max(targetLength)), linetype="dotted") #xlim(c(300,320))
+
+lens_plot
+
+png(paste0(path,"/", "multirun_lendistrib.png"), units="px", width=2900, height=2600, res=400)
+plot(lens_plot, col=adjustcolor("black", alpha=0.2))
+dev.off()
+
+
+```
+
+## Clasificación taxonómica y abundancia relativa
+
+```{r Figura 6. Heatmap.phy, fig.align = "center", fig.cap = "Figura 6. Composición de las comunidades a nivel Filo a lo largo de las estaciones. Se presentan los taxones con varianza mayor a  1e-5.", out.width='\\textwidth', fig.width=8}
+# Agglomerate taxa of the same Specie type [phylotyping] // demora 1-2 min //
+
+agglom_rank <- function(physeq, taxrank) {
+  Rank <-tax_glom(physeq, taxrank = taxrank)
+  mdf = psmelt(Rank)
+  mdf = subset(mdf, taxrank !='Undetermined_R')
+  return(mdf)
+}
+
+mdf_1 = agglom_rank(physeq2_1, 'Filo')
+mdf_2 = agglom_rank(physeq2_2, 'Filo')
+mdf <- rbind(mdf_1,mdf_2)
+# do.call(rbind, lapply(mdf$Filo, is.numeric ))
+library(ggplot2)
+
+colourCount = length(unique(mdf[,'Filo']))
+#colourCount = nsamples(plotbar)
+library(RColorBrewer)
+
+getPalette = colorRampPalette(brewer.pal(colourCount, "Paired"))
+
+theme_set( theme_classic())
+
+
+p = ggplot(mdf, aes(x = Estación, y = Abundance, fill = Filo)) +
+  scale_fill_manual(values = getPalette(colourCount)) + coord_flip()
+p = p + geom_bar(stat = "identity", position = "stack", color = "black")
+p = p + theme(axis.text.x = element_text(angle = -90, hjust = 0), 
+              axis.text.y = element_text(size  = 4.5))
+
+bar <- p + facet_grid(~ Crucero, space = "free", scales = "free") +
+  labs(x = 'Estación', y = 'Abundancia Relativa (%)', 
+         caption = "Abundancia relativa de taxones;  Se remueven las asignaciones 'Undetermined' por muestra") +
+  guides(fill=guide_legend(ncol=2))
+
+png(paste0(path,"/", "Figura-6S-bar.phy.png"), units="px", width=3600, height=3200, res=400)
+plot(bar, col=adjustcolor("black", alpha=0.2))
+dev.off()
+
+```
+
+
+```{r Figura 7. barplot.class, fig.align = "center", fig.cap = "Figura 7. Composición de las comunidades a nivel Clase a lo largo de las estaciones. Se presentan los taxones con varianza mayor a  1e-5.", out.width='\\textwidth', fig.width=8}
+
+Class <-tax_glom(physeq2, taxrank="Clase")
+Class = subset_taxa(Class, Clase!="Undetermined_R")
+
+colourCount = length(unique(tax_table(Class)[,'Clase']))
+
+library(RColorBrewer)
+
+getPalette = colorRampPalette(brewer.pal(colourCount, "Paired"))
+
+mdf = psmelt(Class)
+
+p = ggplot(mdf, aes(x = Estación, y = Abundance, fill = Clase)) +
+  scale_fill_manual(values = getPalette(colourCount)) + coord_flip()
+p = p + geom_bar(stat = "identity", position = "stack", color = "black")
+p = p + theme(axis.text.x = element_text(angle = -90, hjust = 0), 
+              axis.text.y = element_text(size  = 4))
+
+bar <- p + facet_grid(Crucero ~ ., space = "free", scales = "free") +
+  labs(x = 'Estación', y = 'Abundancia Relativa (%)', 
+         caption = "Abundancia relativa de taxones;  Se remueven las asignaciones 'Undetermined' por muestra") +
+  guides(fill=guide_legend(ncol=2))
+
+
+
+png(paste0(path,"/", "Figura-7-bar.Class.png"), units="px", width=3000, height=3100, res=400)
+plot(bar, col=adjustcolor("black", alpha=0.2))
+dev.off()
+```
+
+```{r Figura 8. Heatmap.Or, fig.align = "center", fig.cap = "Figura 8. Composición de las comunidades a nivel Orden a lo largo de las estaciones. Se presentan los taxones con abundancia relativa mayor 1 %.", fig.height = 7, fig.width = 8}
+
+Order <- tax_glom(physeq2, taxrank="Orden")
+
+n_undet <- 1 - ntaxa(subset_taxa(Order, Orden!="Undetermined_R")) / ntaxa(Order)
+
+Order <- subset_taxa(Order, Orden!="Undetermined_R")
+
+Order_ <- phyloseq::filter_taxa(Order, function(x) sum(x) >= 1, TRUE)
+taxaOrder = names(sort(taxa_sums(Order_), decreasing = TRUE))
+otu_table(Order_)[otu_table(Order_) == 0] <- NA
+
+#taxaOrder = rownames(sort(unique(tax_table(Order)[,'Orden']), decreasing=TRUE))
+
+plot <- NULL
+
+plot <- plot_heatmap(Order_, 
+             sample.label = "Estación", 
+             sample.order = "Transecto",
+             taxa.label = "Orden",
+             taxa.order = taxaOrder,
+             na.value = "#e6e7ed", trans = NULL, low = "white", high = "#081D58") +
+        labs(fill = "Abundancia\nRelativa (%)", title = paste0(set, " Crucero"),
+             caption = "Se presentan taxones con abundancia relativa >= 1 % ") +
+        theme(legend.position = "left")
+
+plot <- plot + coord_flip() + theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1), axis.text.y = element_text(size  = 4)) + facet_grid(Crucero ~ ., space = "free", scales = "free")
+
+png(paste0(path,"/", "Figura-8-Heatmap2.Or.png"), units="px", width=4000, height=2400, res=400)
+plot(plot, col=adjustcolor("black", alpha=0.2))
+dev.off()
+```
+
+```{r Figura 10. Boxplot species, fig.align = "center", fig.cap = "Especies más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra.", fig.width = 8, fig.height = 7}
+library(data.table)
+library(ggplot2)
+# also try: https://github.com/joey711/phyloseq/issues/494
+
+Level <- length(Ranks)
+Rank <- Ranks[Level]
+
+glom <- physeq2
+glom <- tax_glom(glom, taxrank = Rank)
+# create dataframe from phyloseq object
+dat <- data.table(psmelt(glom))
+
+dat.bkp <- dat
+dat$Especie <- as.character(dat$Especie)
+
+size <- 1
+# Change name to remainder of rank less than 1%
+dat[(Abundance <= size), Especie := "Otros"]
+
+# boxplot
+plot <- NULL
+max_ab <- round(max(dat$Abundance))
+
+plot <- ggplot(dat[Abundance > 0 & Especie != 'Undetermined_R'],
+      aes(x=reorder(Especie, Abundance, FUN = median),
+          y=Abundance)) +
+ geom_boxplot() +
+ coord_flip() +
+ #scale_y_log10() + 
+ ylim(0, max_ab) +
+ theme_classic() + 
+ theme(axis.text.y = element_text(size  = 4)) +
+ facet_grid(~ Crucero, space = "free", scales = "free") +
+ labs(y = "Abundancia Relativa (%)", x ="Especies", title = paste0("Especies abundantes del crucero ", set),
+      caption = paste0("taxones que representan mas del ", size, "% de la abundancia por muestra"))
+
+
+png(paste0(path,"/", "Figura-10-boxplot.Sp.png"), units="px", width=2700, height=3700, res=400)
+plot(plot, col=adjustcolor("black", alpha=0.2))
+dev.off()
+```
+
+
+```{r Figura 10S. Bubbleplot., fig.align = "center", fig.cap = "Generos más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones presentes en almenos ??? de la abundancia total por muestra (Se colorean por orden cada una de las especies).", fig.width = 8, fig.height = 7}
+
+dat0 <- dat.bkp # Este es el objeto aglomerado de especie
+
+dat0$Especie <- as.character(dat0$Especie)
+
+size <- 1
+# Change name to remainder of rank less than 1%
+dat0[(Abundance <= size), Especie := "Otros"]
+
+dim(dat <- data.frame(dat0[Abundance > 0 & Especie != 'Otros' & Especie != 'Undetermined_R']))
+
+sort_lev <- c(unique(dat[order(dat$Orden), 'Especie']))
+dat$Especie <- factor(dat$Especie, levels = rev(sort_lev))
+
+library(RColorBrewer)
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+
+colourCount <- length((unique(dat$Clase)))
+
+bbplot <- ggplot(dat, 
+       aes(x = Estación, y = Especie, color = Clase)) +
+  geom_point(aes(size=Abundance)) + 
+  facet_grid(~Crucero, space = "free", scales = "free") +
+  scale_color_manual(values = getPalette(colourCount)) +
+  #scale_color_brewer(palette = 'Paired') +
+  theme_classic() + guides(fill=guide_legend(ncol=1)) +
+  theme(
+        axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 90, hjust = 1, size = 5),
+        axis.text.y = element_text(size  = 5))
+
+png(paste0(path,"/", "Figura-10-bubbleplot2.Sp.png"), units="px", 
+    width=4500, height=3700, res=400)
+plot(bbplot, col=adjustcolor("black", alpha=0.2))
+dev.off()
+```
+
+
+```{r Figura 11 Rarefaccion, echo = FALSE, fig.align = "center", fig.cap = "Figura 11. Curva de rarefacción por muestra. Se presenta el número de amplicones a lo largo de las estaciones en relación al número de secuencias.",  out.width='\\textwidth', fig.width = 7, fig.height = 4}
+# https://github.com/gauravsk/ranacapa/
+# and https://github.com/joey711/phyloseq/issues/143
+
+library(ranacapa)
+theme_set(theme_classic())
+getPalette = colorRampPalette(brewer.pal(3, "Paired"))
+
+rr1 <- Animalia_1
+rr2 <- Animalia_2
+
+rrplot <- ggrare(rr1, step = 100, label = "Estación", 
+                 color="Crucero", 
+                 se = FALSE, plot = FALSE) 
+
+plot1 <- rrplot +
+  xlab("Numero de secuencias") + ylab("Numero de amplicones") + 
+    theme(text = element_text(size=12),
+        panel.background = element_blank(), legend.position = "top") +
+  geom_point(size=0.7) +
+  #geom_vline(xintercept = min(sample_sums(rr)), linetype = "dashed") +
+  scale_color_manual(values=getPalette(length(unique(samples$Crucero)))) +
+  facet_grid(~Crucero)
+
+rrplot2 <- ggrare(rr2, step = 100, label = "Estación", 
+                 color="Crucero", 
+                 se = FALSE, plot = FALSE)
+plot2 <- rrplot2 +
+  xlab("Numero de secuencias") + ylab("Numero de amplicones") + 
+    theme(text = element_text(size=12),
+        panel.background = element_blank(), legend.position = "top") +
+  geom_point(size=0.7) +
+  #geom_vline(xintercept = min(sample_sums(rr)), linetype = "dashed") +
+  scale_color_manual(values='#B2DF8A') +
+  facet_grid(~Crucero)
+
+plot <- grid.arrange(plot1,plot2, nrow = 1)
+png(paste0(path,"/", "Figura-11-rarefaction2.png"), units="px", width=3700, height=2500, res=400)
+plot(plot, col=adjustcolor("black", alpha=0.2))
+dev.off()
+
+```
+
+```{r Figura 12. Div. alfa, fig.align = "center", fig.cap = "Figura 12. Diversidad alfa por estación. Se muestran los índices de diversidad alfa de Shannon e Inverso de Simpson calculados para la comunidad de zooplancton cada estación.", out.width='\\textwidth', fig.width = 7, fig.height = 5}
+
+library(RColorBrewer)
+
+getPalette = colorRampPalette(brewer.pal(3, "Paired"))
+# alfa <- Animalia_2
+# n <-length(unique(sample_data(alfa)$Corrida))
+# alfa <- transform_sample_counts(alfa, function(x) 1E6 * x/sum(x))
+# 
+# prichnes <- plot_richness(alfa, x="Estación", color="Crucero", measures=c("Shannon", "InvSimpson"))
+# 
+# prichnes$layers <- prichnes$layers[-1]
+# 
+# plot <- NULL
+# plot <- prichnes + 
+#   #scale_color_manual(values=getPalette(n)) + 
+#   scale_color_manual(values='#B2DF8A') +
+#   geom_point(size=5, alpha=0.7) +
+#   #geom_line(size=1, alpha=0.6, linetype=1, mapping = aes(group = Crucero)) +
+#   ylab("Diversidad alfa") +
+#   #labs(title = paste0(set, " Cruceros")) + 
+#   facet_grid(variable~Crucero, scales = 'free') + 
+#   theme_bw() + 
+#   theme(axis.text.x = element_text(size = 12, angle = 90))
+#           
+# png(paste0(path,"/", "Figura-12_x6-alfa-div.png"), units="px", width=2600, height=2500, res=400)
+# plot(plot, col=adjustcolor("black", alpha=0.2))
+# dev.off()
+
+richness <- estimate_richness(alfa, measures=c("Shannon", "InvSimpson"))
+richness2 <- estimate_richness(alfa, measures=c("Shannon", "InvSimpson"))
+
+DF1 <- data.frame(richness, sample_data(Animalia_1))
+DF2 <- data.frame(richness2, sample_data(Animalia_2))
+
+DF <- rbind(DF1, DF2)
+
+mdf = reshape2::melt(DF, measure.vars = c("Shannon", "InvSimpson"))
+
+
+# EN BASE A ESTO, PODEMOS HACER UN META-FRAME DE MARCADOR COI Y 18S DE LAS ESTACIONES EN COMUN.mk
+
+plot <- NULL
+plot <- ggplot(mdf, aes(y= value, x = Estación, color = Crucero)) + 
+  scale_color_manual(values=getPalette(3)) + 
+  #scale_color_manual(values='#B2DF8A') +
+  geom_point(size=5, alpha=0.7) +
+  geom_line(size=1, alpha=0.6, linetype=1, mapping = aes(group = Crucero)) +
+  ylab("Diversidad alfa") +
+  #labs(title = paste0(set, " Cruceros")) + 
+  facet_wrap(~variable, scales = 'free_y') + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(size = 12, angle = 90))
+
+png(paste0(path,"/", "Figura-12-alfa2-div.png"), units="px", width=4000, height=2500, res=400)
+plot(plot, col=adjustcolor("black", alpha=0.2))
+dev.off()
+
+```
+
+
+```{r Tabla 1. Índices Diversidad, eval = FALSE, echo = FALSE}
+library(phyloseq)
+
+richness <- estimate_richness(physeq, measures = c("Observed", 
+                                   "Chao1", "ACE", 
+                                   "Fisher", "Shannon", 
+                                   "InvSimpson"
+                                   ))
+
+# rownames(richness) <- sample_data(physeq)$`Estación`
+
+save <- round(richness[order(richness$Shannon, decreasing = TRUE),], digits = 2)
+
+write.table(save, file = paste0(path, "/","AMB_richness.csv"))
+
+# knitr::kable(save, caption = 'Tabla 1')
+
+```
+
+
+```{r Figura 13. PCoA, fig.align = "center", fig.cap = "Figura 13. PCoA. Componentes principales (Distancias Jaccard).", fig.width = 7, fig.height = 5}
+
+getPalette = colorRampPalette(brewer.pal(3, "Paired"))
+n <-length(unique(sample_data(phyloseq)$Crucero))
+
+physeq.rr <- transform_sample_counts(phyloseq, function(x) 1E6 * x/sum(x))
+iDist <- phyloseq::distance(physeq.rr, method="jaccard") # jaccard
+iMDS  <- ordinate(rr, "NMDS", distance=iDist) 
+# pairs(iMDS$values)
+# hist(iMDS$values[, 'Eigenvalues'])
+p <- plot_ordination(rr, iMDS, justDF = FALSE,
+                     color="Crucero"
+                     #label="Estación"
+                     #shape="Cruice"
+                     ) 
+
+p$layers <- p$layers[-1]
+
+plot <- NULL
+plot <- p + geom_text(aes(label = Estación), size = 5, check_overlap = TRUE) + theme(legend.position = "top") +
+  scale_color_manual(values=getPalette(n))
+         
+
+png(paste0(path,"/", "Figura-13-jaccard_NMDS.png"), units="px", width=3000, height=3000, res=400)
+plot(plot, col=adjustcolor("black", alpha=0.2))
+dev.off()
+
+```
+
+```{r Figura 7S. intersected-samples-barplot.class, fig.align = "center", fig.cap = "Figura 7. Composición de las comunidades a nivel Clase a lo largo de las estaciones. Se presentan los taxones con varianza mayor a  1e-5.", out.width='\\textwidth', fig.width=8}
+
+
+Class <-tax_glom(physeq2, taxrank="Clase")
+Class = subset_taxa(Class, Clase!="Undetermined_R")
+
+colourCount = length(unique(tax_table(Class)[,'Clase']))
+
+library(RColorBrewer)
+
+getPalette = colorRampPalette(brewer.pal(colourCount, "Paired"))
+
+mdf = psmelt(Class)
+
+p = ggplot(mdf, aes(x = Estación, y = Abundance, fill = Clase)) +
+  scale_fill_manual(values = getPalette(colourCount)) + coord_flip()
+p = p + geom_bar(stat = "identity", position = "stack", color = "black")
+p = p + theme(axis.text.x = element_text(angle = -90, hjust = 0), 
+              axis.text.y = element_text(size  = 10))
+
+bar <- p + facet_grid(~ Crucero , space = "free", scales = "free") +
+  labs(x = 'Estación', y = 'Abundancia Relativa (%)', 
+         caption = "Abundancia relativa de taxones;  Se remueven las asignaciones 'Undetermined' por muestra") +
+  guides(fill=guide_legend(ncol=1))
+
+
+
+png(paste0(path,"/", "Figura-7-bar.Class_intersect_samples.png"), units="px", width=4200, height=3100, res=400)
+plot(bar, col=adjustcolor("black", alpha=0.2))
+dev.off()
+```
+
+```{r Figura 13. PCoA, fig.align = "center", fig.cap = "Figura 13. PCoA. Componentes principales (Distancias Jaccard).", fig.width = 7, fig.height = 5}
+
+getPalette = colorRampPalette(brewer.pal(3, "Paired"))
+n <-length(unique(sample_data(physeq0)$Crucero))
+
+physeq.rr <- transform_sample_counts(physeq0, function(x) 1E6 * x/sum(x))
+iDist <- phyloseq::distance(physeq.rr, method="jaccard") # jaccard
+iMDS  <- ordinate(physeq0, "PCoA", distance=iDist)
+
+p <- plot_ordination(physeq0, iMDS, justDF = FALSE, color="Crucero") 
+
+p$layers <- p$layers[-1]
+
+plot <- NULL
+plot <- p + geom_text(aes(label = Estación), size = 5, check_overlap = TRUE) + theme(legend.position = "top") +
+  scale_color_manual(values=getPalette(n))
+         
+
+png(paste0(path,"/", "Figura-13-jaccard_pcoa_intersect.png"), units="px", width=3000, height=3000, res=400)
+plot(plot, col=adjustcolor("black", alpha=0.2))
+dev.off()
+
+```

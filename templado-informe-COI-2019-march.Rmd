@@ -25,7 +25,7 @@ rm(list=ls());
 ## Generalidades del análisis
 
 ```{r paths}
-set <- 'X06' # ALSO 4 SAMPLES FROM X06
+set <- 'X06' # ALSO 4 SAMPLES FROM X06-ict
 path <- "~/metagenomics/COI/run014"
 
 qc.dir <- paste0(path, "/fastqc")
@@ -409,7 +409,7 @@ Donde $i$ es la posición de la muestra (1 a $m$), $j$ es la posición del taxon
 
 ## Clasificación taxonómica y abundancia relativa
 
-Para la etapa de asignación implementamos la base de datos midori-longest (Machida et. al, 2017) que incluye 583,043 secuencias mitocondriales de referencias con 7 niveles taxonómicos completos. Los amplicones se asignaron utilizando el clasificador bayesiano RDP (wang et. al 2007). El algoritmo de asignación fue configurado con los siguientes parámetros, bootstrap de confidencia = 99, iteraciones = 1000 y tamaño de k-mero = 8 (debido a que cada amplicón representa una variable biológica (amplicones libre de error) se usó un bootstrap de 99 para obtener una asignación astringente. Finalmente,  se llevó a cabo la conversión de las asignaciones obtenidas con la base de referencia midori con la taxonomía de worms (world register of marine species) usando un script casero.
+Para la etapa de asignación implementamos la base de datos BOLD. Los amplicones se asignaron utilizando el clasificador bayesiano RDP (wang et. al 2007). El algoritmo de asignación fue configurado con los siguientes parámetros, bootstrap de confidencia = 99, iteraciones = 1000 y tamaño de k-mero = 8 (debido a que cada amplicón representa una variable biológica (amplicones libre de error) se usó un bootstrap de 99 para obtener una asignación astringente. Finalmente,  se llevó a cabo la conversión de las asignaciones obtenidas con la base de referencia midori con la taxonomía de worms (world register of marine species) usando un script casero.
 
 La figura 5 muestra el árbol de los taxones presentes en el crucero `r set`. Se observan taxones que estuvieron presentes más de dos veces en las muestras del crucero. La paleta de colores nos indican los taxones que predominan a lo largo de las muestras siendo el color gris los menos prevalentes. La tabla adjunta (`r paste0(set, "_taxones_identificados.csv")`) contiene información desglosada que se presenta en esta figura.
 
