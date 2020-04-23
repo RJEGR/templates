@@ -217,7 +217,7 @@ ggsave(track_plot, filename = paste0(path,"/", "track_plot.png") )
 
 ```
 
-```{r Figura 4 empalme, echo = FALSE, fig.align = "center", fig.cap = "Figura 4. Metricas de calidad del analisis general de los amplicones. Tamano del empalme y amplicón generado. Una correlación negativa es señalada.", out.width='\\textwidth', fig.height=8, fig.width=8 }
+```{r Figura 4 empalme, echo = FALSE, fig.align = "center", fig.cap = "Figura 4. Tamano del empalme y amplicón generado", out.width='\\textwidth', fig.height=8, fig.width=8 }
 
 mergedf.dir <- track.dir
 mergedf.file <- list.files(track.dir, pattern = "*_mergedf.tsv", full.names = TRUE)
@@ -580,8 +580,7 @@ h <- plot_heatmap(Family,
                      low = fvalues[1:4],
                      high = fvalues[4:8]
 ) +
-  labs(fill = "Abundancia\nRelativa (%)",
-       caption = caption) +
+  labs(fill = "Abundancia\nRelativa (%)") +
   theme(legend.position = "left")
 
 h <- h + guides(fill = guide_colorbar(barheight = unit(7, "cm"),  ticks.colour = "black", frame.colour = "black"))
@@ -610,6 +609,7 @@ png(paste0(path,"/", "Figura-9-Heatmap.Fam.png"), units="px", width=3000, height
 plot(plot, col=adjustcolor("black", alpha=0.2))
 dev.off()
 
+plot
 ```
 
 ```{r Figura 9. Boxplot species, fig.align = "center", fig.cap = "Figura 9. Especies más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra.", fig.width = 8, fig.height = 7}
@@ -696,6 +696,7 @@ png(paste0(path,"/", "Figura-10-bubbleplot.Sp.png"), units="px", width=2500, hei
 plot(plot, col=adjustcolor("black", alpha=0.2))
 dev.off()
 
+plot
 
 ```
 
@@ -893,7 +894,7 @@ op_plot
 
 ```
 
-La diversidad se obtuvo a través del cálculo de los índices de Shannon, Chao y Predicted de cada estación (Figura 12). La figura 12 grafica la dispersión de la riqueza de especies observadas versus la riqueza predicha utilizando los estimadores ICE (A-C) y Chao2 (D-F) para las estaciones muestradas. Los colores de los puntos representan el indice de diversidad Shannon para cada estación. La línea punteada muestra la relación 1 a 1 entre la riqueza observada y predicha. Los valores de indices de diversidad alfa puede encontrarse en la tabla 1.
+La diversidad se obtuvo a través del cálculo de los índices de Shannon, Chao y observado de cada estación (Figura 12). La figura 12 muestra la dispersión de la riqueza de ASVs observados versus la riqueza predicha utilizando los estimadores Chao1 para las estaciones muestreadas. Los colores de los puntos representan el índice de diversidad Shannon para cada estación. La relación 1 indica entre la riqueza observada y predicha. Los valores de índices de diversidad alfa puede encontrarse en la tabla 1.
 
 ```{r Tabla 1. Índices Diversidad, eval = T, echo = FALSE}
 library(phyloseq)
