@@ -129,10 +129,10 @@ El resumen del análisis se divide en tres etapas principales:
 * Figura 2. Promedio del puntaje de calidad Phred por posición de nucleótido a lo largo de las lectura. Bibliotecas Forward (F) y Reverse (R)
 * Figura 3. Número de secuencias a lo largo del procesamiento
 * Figura 4. Panel del tamaño del empalme y amplicon
-* Figura 5. Composición de la comunidad a nivel Filo (heatmap).
-* Figura 6. Composición de la comunidad a nivel Clase (heatmap).
-* Figura 7. Composición de la comunidad a nivel Orden (heatmap)
-* Figura 8.  Composición de las comunidades a nivel Familia a lo largo de las estaciones. espectivamente, se indican el nivel de Filos y Clase en las columnas del panel derecho
+* Figura 5. Composición de la comunidad a nivel Filo (Barplot).
+* Figura 6. Composición de la comunidad a nivel Clase (Barplot).
+* Figura 7. Composición de la comunidad a nivel Orden (Heatmap)
+* Figura 8.  Composición de las comunidades a nivel Familia a lo largo de las estaciones. espectivamente, se indican el nivel de Filos y Clase en las columnas del panel derecho (Heatmap)
 * Figura 9. Especies más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra.
 * Figura 10. Géneros más abundantes a lo largo de todas las estaciones. Se muestran aquellos taxones que representan al menos 10% de la abundancia total por muestra.
 * Figura 11. Curva de rarefacción por muestra. Se presenta el número de ASVs a lo largo de las estaciones en relación al número de secuencias.
@@ -318,9 +318,12 @@ grid.arrange(p2, empty, p1, p3,
 # Removing 
 # Removing any abundance of zero and
 
+cleanClass <- c('Arachnida', 'Mammalia', 'Insecta','Reptilia', 'Aves')
+
+
 physeq %>% 
   subset_taxa(Reino == "Animals") %>%
-  subset_taxa(!Clase %in%  c('Arachnida', 'Mammalia', 'Insecta')) %>%
+  subset_taxa(!Clase %in%  cleanClass) %>%
   prune_taxa(taxa_sums(.) > 0,.) -> physeq
 
 
@@ -409,7 +412,7 @@ agglom_rank <- function(physeq, taxrank, filter = 0.01, NArm = FALSE) {
 taxrank <- 'Filo'
 fra <- 0
 
-caption <- paste0("La categoria 'Others' contiene ASVs sin asignacion taxonomica")
+caption <- paste0("La categoria 'Others' contiene ASVs sin asignación taxonómica")
 
 mdf <- agglom_rank(physeq, taxrank, fra)
 #mdf[, wrap := ifelse(Abundance > 1, 'A','B')]
@@ -452,7 +455,7 @@ bar
 taxrank <- 'Clase' # Rank a aglomerar
 fra <- 1 # Filter RA
 
-caption <- paste0("La categoria 'Others' contiene ASVs sin asignacion taxonomica y con RA < ", fra, " %")
+caption <- paste0("La categoria 'Others' contiene ASVs sin asignación taxonómica y con RA < ", fra, " %")
 
 mdf <- agglom_rank(physeq, taxrank, fra)
 #mdf[, wrap := ifelse(Abundance > 1, 'A','B')]
@@ -494,6 +497,8 @@ bar
 
 taxrank <- "Orden"
 fra <- 1 
+
+caption <- paste0("La categoria 'Others' contiene ASVs sin asignación taxonómica y con RA < ", fra, " %")
 
 Order <-tax_glom(physeq, taxrank = taxrank, NArm = T)
 
@@ -654,7 +659,7 @@ plot <- ggplot(dat[Abundance > 0 & Especie != 'NA'],
  theme_minimal() + 
  facet_wrap(~ Tipo, nrow = 2 ) +
  labs(y = "Abundancia Relativa (%)", x ="Especies", title = paste0("Especies abundantes del crucero ", set),
-      caption = paste0("taxones que representan mas del ", size, "% de la abundancia por muestra"))
+      caption = paste0("Taxones que representan más del ", size, "% de la abundancia por muestra"))
 
 
 png(paste0(path,"/", "Figura-10-boxplot.Sp.png"), units="px", width=2700, height=3700, res=400)
@@ -688,7 +693,9 @@ plot <- ggplot(dat[Abundance > 0 & Especie != 'Otros' & Especie != 'NA'],
         axis.title.x=element_blank(),
         axis.text.x=element_text(angle = 45, hjust = 1)) +
   labs(size = "Abundancia\nRelativa (%)", y = "Especie", title = paste0("Especies abundantes del crucero ", set),
-      caption = paste0("taxones que representan mas del ", size, "% de la abundancia por muestra"))
+      caption = paste0("Taxones que representan más del ", size, "% de la abundancia por muestra"))
+
+
 
 plot <- plot + coord_flip()
 
@@ -823,7 +830,7 @@ rrplot <- ggrare2(rr, step = 100, label = "Estación",
 
 plot <- NULL
 plot <- rrplot +
-  xlab("Numero de secuencias") + ylab("Numero de amplicones") + 
+  xlab("Número de secuencias") + ylab("Número de amplicones") + 
     theme(text = element_text(size=12),
         panel.background = element_blank(), legend.position = "none") +
   geom_point(size=0.7) +
@@ -878,9 +885,9 @@ op_plot <- ggscatter(obs_vs_chao,
                      color = "Shannon",
                      label = rownames(obs_vs_chao), 
           repel = T, label.rectangle = T,
-          xlab = "Predicted (Chao1 Estimator)",
-          ylab = "Observed",
-          rug = TRUE,
+          xlab = "Predecido (estimador Chao1)",
+          ylab = "Observado",
+          #rug = TRUE,
           #add = "loess",
           conf.int = TRUE,
           cor.coef = T
@@ -923,54 +930,95 @@ getPalette = colorRampPalette(brewer.pal(12, "Paired"))
 n <-length(unique(sample_data(physeq)$Transecto))
 
 physeq.rr <- transform_sample_counts(physeq, function(x) 1E6 * x/sum(x))
-iDist <- phyloseq::distance(physeq.rr, method="jaccard") # Jaccard
-iMDS  <- ordinate(rr, "PCoA", distance=iDist) 
-# pairs(iMDS$values)
-# hist(iMDS$values[, 'Eigenvalues'])
-p <- plot_ordination(rr, iMDS, justDF = FALSE,
-                     color="Transecto"
-                     #label="Estación"
-                     #shape="Cruice"
-                     ) 
+
+# iDist <- phyloseq::distance(physeq.rr, method="jaccard")
+# heatmap(as.matrix(iDist))
+
+iMDS  <- ordinate(physeq, "PCoA", distance = "bray") # iDist
+
+iMDS_screen <- plot_scree(iMDS)
+
+p <- plot_ordination(rr, iMDS, justDF = F,
+                     color="Transecto" )
+
 p$layers <- p$layers[-1]
+eigvec = iMDS$values$Eigenvalues
+fracvar = eigvec[1:2]/sum(eigvec)
+percvar = round(100 * fracvar, 1)
+label_x <- paste0("Eje 1 [", percvar[1], "%]")
+label_y <- paste0("Eje 2 [", percvar[2], "%]")
+
 
 plot <- NULL
-plot <- p + geom_text(aes(label = Estación), size = 5, check_overlap = TRUE) + theme(legend.position = "none") +
-  scale_color_manual(values=getPalette(n))
-# plot + geom_label(aes(label = Estación),  size = 5) + theme(legend.position = "none")
-# plot + geom_path(aes(x=Axis.2, y=Axis.1, colour=Transecto), size=0.7, linetype=2)           
+plot <- p + 
+  geom_label(aes(label = Estación), fill = "white", alpha = 0.9) + theme(legend.position = "none") +
+  scale_color_manual(values=getPalette(n)) +
+  labs(x = label_x, y = label_y)
 
-png(paste0(path,"/", "Figura-13-PCoA.png"), units="px", width=3000, height=3000, res=400)
-plot(plot, col=adjustcolor("black", alpha=0.2))
-dev.off()
-
+ggsave("Figura-13-PCoA.png", plot, path = path)
 plot
+
 ```
 
-```{r NMDS, eval = FALSE, echo = FALSE}
-# Transform data to proportions as appropriate for Bray-Curtis distances
-library(RColorBrewer)
+```{r other methods, eval = FALSE, echo = FALSE}
 
-getPalette = colorRampPalette(brewer.pal(12, "Paired"))
-n <-length(unique(sample_data(physeq)$Transecto))
+# other methods ----
+
+dist = "bray"
+
+ord_meths = c("DCA","CCA", "RDA","NMDS", "MDS", "PCoA")
+plist = plyr::llply(as.list(ord_meths), function(i, physeq, dist){
+        ordi = ordinate(physeq, method=i, distance=dist)
+        plot_ordination(physeq, ordi, "samples", color="Transecto")
+}, physeq.rr, dist)
+
+names(plist) <- ord_meths
+
+pdataframe = plyr::ldply(plist, function(x){
+    df = x$data[, 1:2]
+    colnames(df) = c("Eje_1", "Eje_2")
+    return(cbind(df, x$data))
+})
+names(pdataframe)[1] = "method"
+
+p = ggplot(pdataframe, aes(Eje_1, Eje_2, color=Transecto, fill=Transecto))
+# p = p + geom_point(size=4)  + geom_polygon()
+p = p + geom_label(aes(label = Estación), fill = "white", alpha = 0.9)
+p = p + facet_wrap(~method, scales="free")
+p = p + scale_fill_manual(values=getPalette(n))
+p = p + scale_color_manual(values=getPalette(n))
+p = p + theme(legend.position = "none") +
+  labs(x = "Eje 1", y = "Eje 2")
 
 
-ps.prop <- transform_sample_counts(physeq, function(x) x/sum(x))
-ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
+# 
+# p = plist$PCoA + scale_color_manual(values=getPalette(n))
+# p = p + scale_fill_manual(values=getPalette(n))
+# p = p + geom_label(aes(label = Estación), fill = "white", alpha = 0.9) + theme(legend.position = "none") + labs(x = axis_, y = "Eje 2")
 
-p <- NULL
-p <- plot_ordination(ps.prop, ord.nmds.bray,
-                     color="Transecto",
-                     title="Bray NMDS ordinations"
-                     ) 
+# pca ----
 
-p$layers <- p$layers[-1]
-plot <- NULL
-plot <- p + geom_text(aes(label = Estación), size = 5, check_overlap = TRUE) + theme(legend.position = "none") +
-  scale_color_manual(values=getPalette(n))
-# plot + geom_label(aes(label = Estación),  size = 5) + theme(legend.position = "none") 
-# plot + geom_path(aes(x=NMDS1, y=NMDS2, colour=Transecto), size=0.7, linetype=2)
-            
+samples <- samples[c(grep(set, samples$Crucero)),]
+
+PCA <- prcomp(t(otu_table(physeq.rr)), scale. = FALSE)
+percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
+sd_ratio <- sqrt(percentVar[2] / percentVar[1])
+
+# barplot(PCA$x)
+
+dtvis <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2], samples)
+
+pca_plot2 <- ggplot(dtvis, aes(PC1, PC2)) +
+  geom_label(aes(label = Estación, fill = Transecto), alpha = 0.9) +
+  labs(caption = '') +
+  xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
+  ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_fixed(ratio = sd_ratio) +
+  scale_fill_manual(values=getPalette(n))  +
+  scale_shape_discrete(name = '') +
+  guides(fill = FALSE) +
+  theme_bw()
 
 png(paste0(path,"/", "Figura-13S-NMDS.png"), units="px", width=3000, height=3000, res=400)
 plot(plot, col=adjustcolor("black", alpha=0.2))
