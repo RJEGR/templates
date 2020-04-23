@@ -864,11 +864,12 @@ library(RColorBrewer)
 # plot(plot, col=adjustcolor("black", alpha=0.2))
 # dev.off()
 
-library(dplyr)
-library("ggpubr")
 
+library("ggpubr")
+library(ggsci)
 
 obs_vs_chao <- estimate_richness(physeq)
+
 rownames(obs_vs_chao) <-  sapply(strsplit(rownames(obs_vs_chao), "[.]"), `[`, 2)
 
 op_plot <- ggscatter(obs_vs_chao, 
