@@ -23,7 +23,7 @@ rm(list=ls());
 ## Generalidades del análisis
 
 ```{r paths}
-set <- 'X07'
+set <- 'X06'
 path <- "~/metagenomics/MG_COI/run018/"
 
 qc.dir <- paste0(path, "/fastqc")
@@ -102,8 +102,8 @@ phyloseq = phyloseq(otu_table(seqtab.nochim, taxa_are_rows = TRUE),
 ```{r clean.obj}
 # preprocessing count-matrix
 
-physeq <- subset_samples(phyloseq, Crucero == set) # Subset_samples by cruice
-physeq <- prune_taxa(taxa_sums(physeq) > 0, physeq) # # Removing any taxa of abundance of zero
+physeq <- subset_samples(phyloseq, Crucero == set) 
+physeq <- prune_taxa(taxa_sums(physeq) > 0, physeq) 
 
 keepTaxa = apply(X = as(otu_table(physeq), "matrix") > 0, # Removing any abundance of zero
                  MARGIN = 1, FUN = sum) > 2 # Remove ASVs not k greater than k (2L) 
@@ -111,6 +111,17 @@ keepTaxa = apply(X = as(otu_table(physeq), "matrix") > 0, # Removing any abundan
 # table(keepTaxa)
 
 clean.obj = prune_taxa(keepTaxa, physeq)
+```
+
+```{r}
+ict_sam <- sample_data(physeq)
+ict_sam$Tipo <-  sub('.*(?=.$)', '', ict_sam$Estación, perl=T)
+ict_sam[ict_sam$Tipo == 'H','Tipo'] <- 'Huevos'
+ict_sam[ict_sam$Tipo == 'L','Tipo'] <- 'Larvas'
+
+sample_data(physeq) <- ict_sam
+
+
 ```
 
 Los datos provienen de muestras obtenidas en `r nsamp` estaciones que cubrió el crucero exploratorio `r set`. Para cada muestra se generaron amplicones COI. Los amplicones fueron secuenciados desde ambos extremos generando secuencias con una longitud de 300 pares de bases (pb) cada uno, en un secuenciador MiSeq de Illumina (del CICESE-CIGOM). Los siguientes resultados corresponden al análisis bioinformático de las secuencias generadas.
